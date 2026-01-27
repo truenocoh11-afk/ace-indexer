@@ -7,9 +7,6 @@ authors = [
 ]
 dependencies = [
     "mcp",
-    "fastapi",
-    "uvicorn",
-    "httpx",
     "tree-sitter",
     "tree-sitter-python",
     "chromadb"
