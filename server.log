@@ -1,0 +1,352 @@
+INFO:     Started server process [39960]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:50772 - "POST /sse HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:50773 - "DELETE /sse HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:50774 - "GET /sse HTTP/1.1" 200 OK
+
+[DEBUG] POST /messages received.
+[DEBUG] Headers: {'host': '127.0.0.1:8000', 'user-agent': 'Go-http-client/1.1', 'content-length': '196', 'content-type': 'application/json', 'accept-encoding': 'gzip'}
+INFO:     127.0.0.1:50775 - "POST /messages?session_id=d04dec7432564a3dac80e6274dfad20d HTTP/1.1" 202 Accepted
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 419, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 84, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\applications.py", line 123, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 762, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 782, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 72, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 299, in app
+    raise e
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 294, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\main.py", line 91, in handle_messages
+    print("[DEBUG] \u2705 POST processed by transport. Returning NoOpResponse.\n")
+  File "C:\Users\Julian\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 8: character maps to <undefined>
+
+[DEBUG] POST /messages received.
+[DEBUG] Headers: {'host': '127.0.0.1:8000', 'user-agent': 'Go-http-client/1.1', 'content-length': '66', 'content-type': 'application/json', 'accept-encoding': 'gzip'}
+INFO:     127.0.0.1:50776 - "POST /messages?session_id=d04dec7432564a3dac80e6274dfad20d HTTP/1.1" 202 Accepted
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 419, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 84, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\applications.py", line 123, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 762, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 782, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 72, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 299, in app
+    raise e
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 294, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\main.py", line 91, in handle_messages
+    print("[DEBUG] \u2705 POST processed by transport. Returning NoOpResponse.\n")
+  File "C:\Users\Julian\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 8: character maps to <undefined>
+
+[DEBUG] POST /messages received.
+[DEBUG] Headers: {'host': '127.0.0.1:8000', 'user-agent': 'Go-http-client/1.1', 'content-length': '58', 'content-type': 'application/json', 'accept-encoding': 'gzip'}
+INFO:     127.0.0.1:50777 - "POST /messages?session_id=d04dec7432564a3dac80e6274dfad20d HTTP/1.1" 202 Accepted
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 419, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 84, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\applications.py", line 123, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 762, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 782, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 72, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 299, in app
+    raise e
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 294, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\main.py", line 91, in handle_messages
+    print("[DEBUG] \u2705 POST processed by transport. Returning NoOpResponse.\n")
+  File "C:\Users\Julian\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 8: character maps to <undefined>
+INFO:     127.0.0.1:49843 - "POST /sse HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:49844 - "DELETE /sse HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:49845 - "GET /sse HTTP/1.1" 200 OK
+
+[DEBUG] POST /messages received.
+[DEBUG] Headers: {'host': '127.0.0.1:8000', 'user-agent': 'Go-http-client/1.1', 'content-length': '196', 'content-type': 'application/json', 'accept-encoding': 'gzip'}
+INFO:     127.0.0.1:49846 - "POST /messages?session_id=c79da5bffe994be5b41839dbc0afb14c HTTP/1.1" 202 Accepted
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 419, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 84, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\applications.py", line 123, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 762, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 782, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 72, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 299, in app
+    raise e
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 294, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\main.py", line 91, in handle_messages
+    print("[DEBUG] \u2705 POST processed by transport. Returning NoOpResponse.\n")
+  File "C:\Users\Julian\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 8: character maps to <undefined>
+
+[DEBUG] POST /messages received.
+[DEBUG] Headers: {'host': '127.0.0.1:8000', 'user-agent': 'Go-http-client/1.1', 'content-length': '66', 'content-type': 'application/json', 'accept-encoding': 'gzip'}
+INFO:     127.0.0.1:49847 - "POST /messages?session_id=c79da5bffe994be5b41839dbc0afb14c HTTP/1.1" 202 Accepted
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 419, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 84, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\applications.py", line 123, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 762, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 782, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 72, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 299, in app
+    raise e
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 294, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\main.py", line 91, in handle_messages
+    print("[DEBUG] \u2705 POST processed by transport. Returning NoOpResponse.\n")
+  File "C:\Users\Julian\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 8: character maps to <undefined>
+
+[DEBUG] POST /messages received.
+[DEBUG] Headers: {'host': '127.0.0.1:8000', 'user-agent': 'Go-http-client/1.1', 'content-length': '58', 'content-type': 'application/json', 'accept-encoding': 'gzip'}
+INFO:     127.0.0.1:49848 - "POST /messages?session_id=c79da5bffe994be5b41839dbc0afb14c HTTP/1.1" 202 Accepted
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 419, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 84, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\applications.py", line 123, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 762, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 782, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\starlette\routing.py", line 72, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 299, in app
+    raise e
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 294, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\venv\Lib\site-packages\fastapi\routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Julian\Documents\BoluIdeas\ACE indexer\ace_engine\main.py", line 91, in handle_messages
+    print("[DEBUG] \u2705 POST processed by transport. Returning NoOpResponse.\n")
+  File "C:\Users\Julian\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 8: character maps to <undefined>
