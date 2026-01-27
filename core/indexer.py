@@ -78,7 +78,14 @@ class Indexer:
             # if "ace_engine" in root: continue 
             
             for file in files:
-                if not file.endswith((".py", ".js", ".ts", ".md", ".txt", ".html", ".css", ".json", ".xml")): continue
+                if not file.endswith((
+                    # Frontend / Web
+                    ".html", ".htm", ".css", ".scss", ".less", ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte",
+                    # Backend / Scripting
+                    ".py", ".php", ".rb", ".go", ".java", ".cs", ".rs", ".kt", ".swift", ".dart", ".sh",
+                    # Data / Config
+                    ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".env", ".sql", ".md", ".txt"
+                )): continue
                 
                 filepath = os.path.join(root, file)
                 current_hash = self._compute_file_hash(filepath)
