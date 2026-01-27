@@ -63,9 +63,24 @@ def create_mcp_server():
                 
                 text_output.append(f"Found {len(documents)} matches context for: {project_path}\n")
                 
+                MAX_LEN = 1500
+                BOOSTED_MAX_LEN = 3000
+
                 for doc, meta in zip(documents, metadatas):
-                    text_output.append(f"--- File: {meta.get('path', 'unknown')} ---")
-                    text_output.append(doc)
+                    path = meta.get('path', 'unknown')
+                    is_boosted = meta.get('boosted', False)
+                    limit = BOOSTED_MAX_LEN if is_boosted else MAX_LEN
+                    
+                    # Snippet Truncation Logic
+                    if len(doc) > limit:
+                        head = doc[:int(limit * 0.7)]
+                        tail = doc[-int(limit * 0.2):]
+                        display_doc = f"{head}\n\n... [TRUNCATED {len(doc) - limit} chars for clarity] ...\n\n{tail}"
+                    else:
+                        display_doc = doc
+
+                    text_output.append(f"--- File: {path} {' [PRIORITY MATCH]' if is_boosted else ''} ---")
+                    text_output.append(display_doc)
                     text_output.append("\n" + "-"*20 + "\n")
                 
                 return [types.TextContent(type="text", text="\n".join(text_output))]
