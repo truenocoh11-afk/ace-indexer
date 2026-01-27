@@ -1,25 +1,17 @@
 import asyncio
-import httpx
 import sys
+import os
 from mcp.server import Server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 import mcp.types as types
 
-ACE_API_URL = "http://127.0.0.1:8000"
-
-async def _query_ace(endpoint: str, payload: dict, project_path: str):
-    try:
-        headers = {"X-Project-Path": project_path if project_path else ""}
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{ACE_API_URL}{endpoint}", json=payload, headers=headers, timeout=10)
-            response.raise_for_status()
-            return response.json()
-    except Exception as e:
-        return {"error": str(e)}
+# Direct Import of Core Logic (No HTTP)
+from core.indexer import Indexer
 
 # Expose the server instance creation
 def create_mcp_server():
     app = Server("Antigravity Context Engine (ACE)")
+    indexer = Indexer()
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
@@ -53,37 +45,54 @@ def create_mcp_server():
     @app.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
         print(f"[DEBUG] call_tool invoked: {name} with {arguments}")
-        if name == "ace_search_code":
-            query = arguments.get("query")
-            project_path = arguments.get("project_path")
-            
-            print(f"[DEBUG] Querying ACE API for: {query}")
-            result = await _query_ace("/v1/context/query", {"query": query}, project_path)
-            print(f"[DEBUG] Query finished. Result size: {len(result.get('results', [])) if 'results' in result else 0}")
-            
-            if "error" in result:
-                return [types.TextContent(type="text", text=f"Error: {result['error']}")]
-            
-            text_output = []
-            text_output.append(f"Found {len(result.get('results', []))} matches context for: {project_path}\n")
-            
-            for res in result.get("results", []):
-                text_output.append(f"--- File: {res['file_path']} ({res['type']}) ---")
-                text_output.append(res['content'])
-                text_output.append("\n" + "-"*20 + "\n")
-            
-            return [types.TextContent(type="text", text="\n".join(text_output))]
+        
+        try:
+            if name == "ace_search_code":
+                query = arguments.get("query")
+                project_path = arguments.get("project_path")
+                
+                print(f"[DEBUG] Executing direct search for: {query} in {project_path}")
+                
+                # Perform Search Logic directly
+                results = indexer.query(project_path, query)
+                
+                text_output = []
+                # Check chroma result structure (ids, metadatas, documents)
+                documents = results.get("documents", [[]])[0]
+                metadatas = results.get("metadatas", [[]])[0]
+                
+                text_output.append(f"Found {len(documents)} matches context for: {project_path}\n")
+                
+                for doc, meta in zip(documents, metadatas):
+                    text_output.append(f"--- File: {meta.get('path', 'unknown')} ---")
+                    text_output.append(doc)
+                    text_output.append("\n" + "-"*20 + "\n")
+                
+                return [types.TextContent(type="text", text="\n".join(text_output))]
 
-        elif name == "ace_index_project":
-            project_path = arguments.get("project_path")
-            force = arguments.get("force", False)
-            result = await _query_ace("/v1/context/index", {"project_path": project_path, "force": force}, project_path)
+            elif name == "ace_index_project":
+                project_path = arguments.get("project_path")
+                force = arguments.get("force", False)
+                
+                print(f"[DEBUG] Executing direct index for: {project_path}")
+                if not os.path.exists(project_path):
+                    return [types.TextContent(type="text", text=f"Error: Path {project_path} does not exist.")]
+
+                # Run Indexer Synchronously (or offload to thread if needed, but Indexer is mostly I/O)
+                # Since we are in an async function, strictly speaking we should run_in_executor
+                # but for simplicity/reliability in this fix we call it directly.
+                stats = indexer.index_project(project_path, force=force)
+                
+                msg = f"Project Indexed Successfully.\nStats: {stats}"
+                msg += "\n\n(Note: Index stored in .ace/ folder inside the project.)"
+                return [types.TextContent(type="text", text=msg)]
+                
+            return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
             
-            msg = str(result)
-            msg += "\n\n(Note: Index stored in .ace/ folder. A .gitignore file was automatically created inside it to prevent committing the index.)"
-            return [types.TextContent(type="text", text=msg)]
-            
-        return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return [types.TextContent(type="text", text=f"Error executing tool {name}: {str(e)}")]
     
     return app
 
