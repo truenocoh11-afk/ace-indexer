@@ -20,9 +20,9 @@ if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-async def main():
+async def async_main():
     """
-    Main entry point for the Stdio-based MCP server.
+    Async logic for the Stdio-based MCP server.
     """
     # Create the MCP server instance (contains tool definitions)
     mcp_server = create_mcp_server()
@@ -35,10 +35,15 @@ async def main():
             mcp_server.create_initialization_options()
         )
 
-if __name__ == "__main__":
-    # Ensure we run in an async context
+def main():
+    """
+    Synchronous entry point for the package script.
+    """
     try:
-        asyncio.run(main())
+        asyncio.run(async_main())
     except KeyboardInterrupt:
-        # Graceful shutdown on Ctrl+C
         pass
+
+if __name__ == "__main__":
+    main()
+
