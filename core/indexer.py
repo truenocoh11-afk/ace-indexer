@@ -1,15 +1,59 @@
-import os
-import hashlib
-import json
-import chromadb
-from chromadb.config import Settings
-from .skeletonizer import Skeletonizer
+import fnmatch
+
+class GitignoreParser:
+    """Simple parser for .gitignore patterns."""
+    def __init__(self, root_path: str):
+        self.root_path = root_path
+        self.patterns = []
+        self._load_gitignore()
+
+    def _load_gitignore(self):
+        gitignore_path = os.path.join(self.root_path, ".gitignore")
+        if not os.path.exists(gitignore_path):
+            return
+        
+        with open(gitignore_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"): continue
+                self.patterns.append(line)
+
+    def match(self, filepath: str) -> bool:
+        """Returns True if the filepath matches any ignore pattern."""
+        rel_path = os.path.relpath(filepath, self.root_path)
+        # Normalize for windows
+        rel_path = rel_path.replace(os.sep, "/")
+        
+        for pattern in self.patterns:
+            # Handle directory specific patterns (ending with /)
+            if pattern.endswith("/"):
+                # Check if file is IN that directory
+                if rel_path.startswith(pattern) or f"/{pattern}" in rel_path:
+                    return True
+            
+            # Simple fnmatch
+            if fnmatch.fnmatch(rel_path, pattern):
+                return True
+            # Match basename
+            if fnmatch.fnmatch(os.path.basename(filepath), pattern):
+                return True
+        return False
 
 class Indexer:
     def __init__(self):
         # Indexer is now stateless regarding "data_dir". 
         # It calculates paths based on the project being indexed.
         self.skeletonizer = Skeletonizer()
+        
+        # Standard noise patterns (Explicit Blacklist)
+        self.IGNORED_PATTERNS = [
+            "*.min.js", "*.min.css", "*.map",
+            "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+            "*.svg", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico",
+            "*.zip", "*.tar", "*.gz", "*.rar", "*.7z", "*.pdf", 
+            "*.exe", "*.dll", "*.so", "*.dylib", "*.bin",
+            "*.pyc", "*.pyo"
+        ]
 
     def _get_ace_path(self, project_path: str) -> str:
         return os.path.join(project_path, ".ace")
@@ -51,6 +95,36 @@ class Indexer:
         except Exception:
             return ""
 
+    def _is_binary_file(self, filepath: str) -> bool:
+        """Check first 1024 bytes for null byte to detect binary files."""
+        try:
+            with open(filepath, "rb") as f:
+                chunk = f.read(1024)
+                return b'\0' in chunk
+        except Exception:
+            return True # If we can't read it, assume it's not text code
+
+    def _should_ignore(self, filepath: str, gitignore: GitignoreParser) -> bool:
+        filename = os.path.basename(filepath)
+        
+        # 1. Explicit Pattern Blacklist
+        for pattern in self.IGNORED_PATTERNS:
+            if fnmatch.fnmatch(filename, pattern):
+                print(f"[Indexer] Ignoring {filename} (Matched pattern: {pattern})")
+                return True
+        
+        # 2. Gitignore Check
+        if gitignore.match(filepath):
+            print(f"[Indexer] Ignoring {filename} (Matched .gitignore)")
+            return True
+            
+        # 3. Binary Check
+        if self._is_binary_file(filepath):
+            print(f"[Indexer] Ignoring {filename} (Detected Binary)")
+            return True
+            
+        return False
+
     def index_project(self, project_path: str, force: bool = False):
         print(f"[Indexer] Indexing project: {project_path}")
         
@@ -65,19 +139,33 @@ class Indexer:
         
         files_to_index = []
         ids_to_delete = []
+        
+        # Initialize Gitignore Parser
+        gitignore = GitignoreParser(project_path)
 
         # Walk files
         for root, dirs, files in os.walk(project_path):
-            if "venv" in dirs: dirs.remove("venv")
+            # Always exclude .ace
+            if ".ace" in dirs: dirs.remove(".ace")
             if ".git" in dirs: dirs.remove(".git")
-            if "__pycache__" in dirs: dirs.remove("__pycache__")
-            if "node_modules" in dirs: dirs.remove("node_modules")
-            if ".ace" in dirs: dirs.remove(".ace") # CRITICAL: Ignore our own storage
             
-            # Legacy ignore (if running self-test)
-            # if "ace_engine" in root: continue 
-            
+            # Don't manually remove 'dist', 'node_modules' etc here.
+            # We let .gitignore handle it, OR we rely on efficient skipping below.
+            # However, for huge dirs like node_modules, it's efficient to skip walking them if gitignored.
+            # Optimization: Check if current root is ignored
+            if gitignore.match(root):
+                # If the directory itself is ignored, clear subdirs to stop recursion
+                dirs[:] = []
+                continue
+
             for file in files:
+                filepath = os.path.join(root, file)
+                
+                # Check against our Robust Filters
+                if self._should_ignore(filepath, gitignore):
+                    continue
+                
+                # Allowed extensions check (Whitelist)
                 if not file.endswith((
                     # Frontend / Web
                     ".html", ".htm", ".css", ".scss", ".less", ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte",
@@ -87,7 +175,6 @@ class Indexer:
                     ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".env", ".sql", ".md", ".txt"
                 )): continue
                 
-                filepath = os.path.join(root, file)
                 current_hash = self._compute_file_hash(filepath)
                 new_hashes[filepath] = current_hash
                 
@@ -141,19 +228,13 @@ class Indexer:
         return {"indexed": len(files_to_index), "deleted": len(ids_to_delete)}
 
     def _is_low_quality(self, content: str, path: str) -> bool:
-        """Heuristic to detect minified files, large data, or low-info content."""
+        """Fallback Heuristic for search time filtering."""
         if not content: return True
-        
-        # 1. Minified Check (Avg line length)
+        # If it passed index time filters, it's mostly okay, but check for extreme minification just in case
         lines = content.splitlines()
         if lines:
             avg_len = len(content) / len(lines)
-            if avg_len > 300: return True
-            
-        # 2. Extension Penalty (Large data files)
-        if path.lower().endswith((".json", ".map", ".xml", ".csv")):
-            if len(content) > 50000: return True # 50KB+ data files are noisy
-            
+            if avg_len > 1000: return True # Very generous limit, only for truly minified garbage
         return False
 
     def _weighted_rrf(self, filename_results: list, vector_results: list, k: int = 60, w_file: float = 3.0, w_vec: float = 1.0) -> list:
