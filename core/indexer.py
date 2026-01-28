@@ -1,4 +1,10 @@
+import os
+import hashlib
+import json
+import chromadb
 import fnmatch
+from chromadb.config import Settings
+from .skeletonizer import Skeletonizer
 
 class GitignoreParser:
     """Simple parser for .gitignore patterns."""
