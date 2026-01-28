@@ -218,7 +218,8 @@ class Indexer:
             pass
 
         # 3. Fusion (Weighted RRF)
-        final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=3.0, w_vec=1.0)
+        # HUGE BOOST (50.0) ensures filename matches preserve their rank order above vector results
+        final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
         
         # 4. Filter & Build Final Response
         res_ids = []
@@ -226,18 +227,19 @@ class Indexer:
         res_docs = []
         
         # Re-fetch content and metadata for the winners
-        # (Chroma usually has them, but for filename matches we might need to read disk)
         for doc_id in final_ids:
             if len(res_ids) >= n_results: break
             
             try:
-                # Meta check
-                is_boosted = any(f["id"] == doc_id for f in filename_matches)
+                # Meta check (Robust normalization)
+                # We check if doc_id is in the list of filename_matches IDs
+                is_boosted = any(os.path.normpath(f["id"]) == os.path.normpath(doc_id) for f in filename_matches)
                 
                 with open(doc_id, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                # Anti-Flooding Filter
+                # Anti-Flooding Filter: Only apply to NON-BOOSTED files
+                # If it's a priority match, we show it even if it looks "low quality" (user knows best)
                 if not is_boosted and self._is_low_quality(content, doc_id):
                     continue
 
