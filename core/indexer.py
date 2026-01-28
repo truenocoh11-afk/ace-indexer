@@ -151,14 +151,17 @@ class Indexer:
 
         # Walk files
         for root, dirs, files in os.walk(project_path):
-            # Always exclude .ace
+            # 1. Universal Hard Blocks (Never index these, regardless of gitignore)
             if ".ace" in dirs: dirs.remove(".ace")
             if ".git" in dirs: dirs.remove(".git")
+            if "node_modules" in dirs: dirs.remove("node_modules")
+            if "venv" in dirs: dirs.remove("venv")
+            if "__pycache__" in dirs: dirs.remove("__pycache__")
+            if ".idea" in dirs: dirs.remove(".idea")
+            if ".vscode" in dirs: dirs.remove(".vscode")
             
-            # Don't manually remove 'dist', 'node_modules' etc here.
-            # We let .gitignore handle it, OR we rely on efficient skipping below.
-            # However, for huge dirs like node_modules, it's efficient to skip walking them if gitignored.
-            # Optimization: Check if current root is ignored
+            # 2. Gitignore & Optimization
+            # Check if current root is ignored by gitignore
             if gitignore.match(root):
                 # If the directory itself is ignored, clear subdirs to stop recursion
                 dirs[:] = []
