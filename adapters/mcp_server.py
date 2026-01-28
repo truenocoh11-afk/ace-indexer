@@ -18,7 +18,7 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="Search the codebase using Hybrid RAG (Keywords + Semantic). Returns relevant code skeletons.",
+                description="[v0.1.9] Search the codebase using Hybrid RAG (Keywords + Semantic). Returns relevant code skeletons.",
                 inputSchema={
                     "type": "object",
                     "properties": {
