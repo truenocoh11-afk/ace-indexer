@@ -18,12 +18,13 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.1.9] Search the codebase using Hybrid RAG (Keywords + Semantic). Returns relevant code skeletons.",
+                description="[v0.2.0] Search the codebase using Hybrid RAG (Keywords + Semantic) with optional file filtering. Returns relevant code skeletons.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "The search query (e.g. 'how does login work')"},
-                        "project_path": {"type": "string", "description": "Absolute path to the project root"}
+                        "project_path": {"type": "string", "description": "Absolute path to the project root"},
+                        "file_pattern": {"type": "string", "description": "Optional glob pattern to filter files (e.g. '*.js', 'test_*.py')"}
                     },
                     "required": ["query", "project_path"]
                 }
@@ -50,11 +51,12 @@ def create_mcp_server():
             if name == "ace_search_code":
                 query = arguments.get("query")
                 project_path = arguments.get("project_path")
+                file_pattern = arguments.get("file_pattern")
                 
-                print(f"[DEBUG] Executing direct search for: {query} in {project_path}")
+                print(f"[DEBUG] Executing direct search for: {query} in {project_path} (pattern: {file_pattern})")
                 
                 # Perform Search Logic directly
-                results = indexer.query(project_path, query)
+                results = indexer.query(project_path, query, file_pattern=file_pattern)
                 
                 text_output = []
                 # Check chroma result structure (ids, metadatas, documents)

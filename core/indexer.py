@@ -265,7 +265,7 @@ class Indexer:
         sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
         return sorted_ids, scores
 
-    def query(self, project_path: str, query_text: str, n_results: int = 5):
+    def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None):
         indices_dir, hashes_path = self._get_paths(project_path)
         
         if not os.path.exists(indices_dir):
@@ -276,17 +276,20 @@ class Indexer:
         filename_matches = []
         query_lower = query_text.lower()
         
-        # Basic heuristic: if query contains extension, boost exact extension matches
-        # or if query looks like a path
-        
         for path in known_hashes:
-            filename = os.path.basename(path).lower()
+            filename = os.path.basename(path)
+            
+            # [Optimization] If file_pattern is provided, skip filename check for non-matching files early
+            if file_pattern and not fnmatch.fnmatch(filename, file_pattern):
+                continue
+
+            filename_lower = filename.lower()
             rel_path = os.path.relpath(path, project_path).lower()
             
             # Weighted matching for Filename Rank
             match_score = 0
-            if query_lower == filename: match_score = 10 # Exact filename
-            elif query_lower in filename: match_score = 5 # Partial filename
+            if query_lower == filename_lower: match_score = 10 # Exact filename
+            elif query_lower in filename_lower: match_score = 5 # Partial filename
             elif query_lower in rel_path: match_score = 2 # Partial path
             
             if match_score > 0:
@@ -300,15 +303,18 @@ class Indexer:
         vector_results = []
         try:
             collection = client.get_collection(name="project_context")
-            v_res = collection.query(query_texts=[query_text], n_results=n_results * 2)
+            # We fetch more results than needed to allow for filtering
+            v_res = collection.query(query_texts=[query_text], n_results=n_results * 5)
             ids = v_res.get("ids", [[]])[0]
             for vid in ids:
+                # [Post-Filter] Check if the result matches the pattern
+                if file_pattern and not fnmatch.fnmatch(os.path.basename(vid), file_pattern):
+                    continue
                 vector_results.append({"id": vid})
         except Exception:
             pass
 
         # 3. Fusion (Weighted RRF)
-        # HUGE BOOST (50.0) ensures filename matches preserve their rank order above vector results
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
         
         # 4. Filter & Build Final Response
