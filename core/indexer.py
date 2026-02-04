@@ -201,12 +201,14 @@ class Indexer:
 
         # Process Deletions
         if ids_to_delete:
-            print(f"[Indexer] Removing {len(ids_to_delete)} stale files.")
+            import sys
+            sys.stderr.write(f"[Indexer] Removing {len(ids_to_delete)} stale files.\n")
             collection.delete(ids=ids_to_delete)
 
         # Process Additions/Updates
         if files_to_index:
-            print(f"[Indexer] Indexing {len(files_to_index)} new/changed files.")
+            import sys
+            sys.stderr.write(f"[Indexer] Indexing {len(files_to_index)} new/changed files.\n")
             documents = []
             metadatas = []
             ids = []
