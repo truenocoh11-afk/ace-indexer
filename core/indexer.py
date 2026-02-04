@@ -116,23 +116,27 @@ class Indexer:
         # 1. Explicit Pattern Blacklist
         for pattern in self.IGNORED_PATTERNS:
             if fnmatch.fnmatch(filename, pattern):
-                print(f"[Indexer] Ignoring {filename} (Matched pattern: {pattern})")
+                import sys
+                sys.stderr.write(f"[Indexer] Ignoring {filename} (Matched pattern: {pattern})\n")
                 return True
         
         # 2. Gitignore Check
         if gitignore.match(filepath):
-            print(f"[Indexer] Ignoring {filename} (Matched .gitignore)")
+            import sys
+            sys.stderr.write(f"[Indexer] Ignoring {filename} (Matched .gitignore)\n")
             return True
             
         # 3. Binary Check
         if self._is_binary_file(filepath):
-            print(f"[Indexer] Ignoring {filename} (Detected Binary)")
+            import sys
+            sys.stderr.write(f"[Indexer] Ignoring {filename} (Detected Binary)\n")
             return True
             
         return False
 
     def index_project(self, project_path: str, force: bool = False):
-        print(f"[Indexer] Indexing project: {project_path}")
+        import sys
+        sys.stderr.write(f"[Indexer] Indexing project: {project_path}\n")
         
         indices_dir, hashes_path = self._get_paths(project_path)
         
@@ -222,7 +226,8 @@ class Indexer:
                     })
                     ids.append(filepath)
                 except Exception as e:
-                    print(f"Error indexing {filepath}: {e}")
+                    import sys
+                    sys.stderr.write(f"Error indexing {filepath}: {e}\n")
 
             # Batch add
             batch_size = 100
