@@ -409,6 +409,53 @@ class Indexer:
         new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores[x], reverse=True)
         return new_sorted_ids, boosted_scores
 
+    def _extract_identifiers(self, query: str) -> list:
+        """Extract code identifiers from query (camelCase, snake_case, PascalCase)."""
+        # Patterns for common code identifier styles
+        patterns = [
+            r'\b[a-z]+[A-Z][a-zA-Z0-9]*\b',   # camelCase
+            r'\b[A-Z][a-z]+[A-Z][a-zA-Z0-9]*\b',  # PascalCase
+            r'\b[a-z]+_[a-z0-9_]+\b',            # snake_case
+            r'\b[A-Z][A-Z0-9_]+\b',               # CONSTANT_CASE
+        ]
+        identifiers = []
+        for p in patterns:
+            matches = re.findall(p, query)
+            identifiers.extend(matches)
+        
+        # Deduplicate while preserving order
+        return list(dict.fromkeys(identifiers))
+
+    def _word_boost(self, final_ids: list, rrf_scores: dict, identifiers: list) -> tuple:
+        """Boost files that contain any of the extracted identifiers."""
+        if not identifiers:
+            return final_ids, rrf_scores
+        
+        boosted_scores = rrf_scores.copy()
+        # Check top 30 files for identifier hits
+        candidates = final_ids[:30]
+        
+        for filepath in candidates:
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                hits = 0
+                for ident in identifiers:
+                    # Case-sensitive check for identifiers is usually better for code
+                    if ident in content:
+                        hits += 1
+                
+                # Apply a significant boost per identifier match
+                if hits > 0:
+                    boosted_scores[filepath] += (hits * 0.5)
+            except Exception:
+                continue
+        
+        # Re-sort ALL ids by boosted score
+        new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores[x], reverse=True)
+        return new_sorted_ids, boosted_scores
+
     def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None) -> list:
         """Internal fast grep for literal string matches in indexed files."""
         matches = []
@@ -528,6 +575,14 @@ class Indexer:
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
         
+        # [v0.5.0] Word-Level Identifier Boost (Always-On)
+        # Even if a query is conceptual, if it contains specific identifiers (camelCase, etc.),
+        # we want to find files that literally contain those words.
+        identifiers = self._extract_identifiers(query_text)
+        if identifiers:
+            sys.stderr.write(f"[Indexer] Boosting files containing identifiers: {identifiers}\n")
+            final_ids, rrf_scores = self._word_boost(final_ids, rrf_scores, identifiers)
+
         # [v0.4.0] Semantic Re-Ranking (Post-Fusion)
         # Give a boost to files that contain literal keywords from the query
         if query_type == 'conceptual':
