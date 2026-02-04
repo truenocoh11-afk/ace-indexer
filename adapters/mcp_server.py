@@ -18,7 +18,7 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.5.0] 💎 RECOMMENDED. Hybrid Always-On search. Detects both concepts and exact code identifiers (camelCase, snake_case) automatically.",
+                description="[v0.6.0] 💎 RECOMMENDED. Hybrid search with Declaration Boost. Detects concepts, identifiers, and exact variable declarations.",
                 inputSchema={
                     "type": "object",
                     "properties": {

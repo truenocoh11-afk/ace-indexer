@@ -426,6 +426,81 @@ class Indexer:
         # Deduplicate while preserving order
         return list(dict.fromkeys(identifiers))
 
+    def _declaration_boost(self, final_ids: list, rrf_scores: dict, identifiers: list) -> tuple:
+        """
+        [v0.6.0] Boost files that contain actual DECLARATIONS of queried identifiers.
+        
+        This specifically targets the "birth certificate" of a variable, not just mentions.
+        Includes mitigations for test files and over-ranking.
+        """
+        if not identifiers:
+            return final_ids, rrf_scores
+        
+        # Test/mock path patterns (reduced boost for these)
+        TEST_PATH_PATTERNS = [
+            r'[/\\]tests?[/\\]', r'[/\\]specs?[/\\]', r'[/\\]__tests?__[/\\]',
+            r'[/\\]mocks?[/\\]', r'[/\\]fixtures?[/\\]',
+            r'\.test\.', r'\.spec\.', r'\.mock\.'
+        ]
+        
+        # Declaration patterns for common languages
+        DECL_PATTERNS = [
+            # JavaScript/TypeScript
+            r'(?:let|const|var)\s+{ident}\s*[=:;]',
+            r'export\s+(?:let|const|var)\s+{ident}',
+            r'export\s+(?:default\s+)?(?:function|class)\s+{ident}',
+            r'(?:public|private|protected)?\s*{ident}\s*[=:]',
+            # Python
+            r'^{ident}\s*=\s*',
+            r'^{ident}\s*:\s*\w+\s*=',
+            r'self\.{ident}\s*=',
+            r'def\s+{ident}\s*\(',
+            r'class\s+{ident}\s*[\(:]',
+            r'async\s+def\s+{ident}\s*\(',
+            # General
+            r'function\s+{ident}\s*\(',
+            r'{ident}\s*=\s*function\s*\(',
+            r'{ident}\s*=\s*\([^)]*\)\s*=>',
+        ]
+        
+        MAX_BOOST = 1.5  # Cap to prevent over-ranking
+        
+        boosted_scores = rrf_scores.copy()
+        candidates = final_ids[:30]
+        
+        for filepath in candidates:
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                # Check if this is a test/mock file
+                is_test = any(re.search(p, filepath, re.IGNORECASE) for p in TEST_PATH_PATTERNS)
+                base_boost = 0.3 if is_test else 1.0
+                
+                file_boost = 0
+                for ident in identifiers:
+                    for pattern_template in DECL_PATTERNS:
+                        pattern = pattern_template.format(ident=re.escape(ident))
+                        if re.search(pattern, content, re.MULTILINE):
+                            file_boost += base_boost
+                            prefix = "[TEST] " if is_test else ""
+                            sys.stderr.write(
+                                f"[Indexer] {prefix}Declaration boost +{base_boost}: "
+                                f"{os.path.basename(filepath)} declares '{ident}'\n"
+                            )
+                            break  # One boost per identifier per file
+                
+                # Apply capped boost
+                if file_boost > 0:
+                    boosted_scores[filepath] += min(file_boost, MAX_BOOST)
+                
+            except Exception:
+                continue
+        
+        # Re-sort ALL ids by boosted score
+        new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores.get(x, 0), reverse=True)
+        return new_sorted_ids, boosted_scores
+
     def _word_boost(self, final_ids: list, rrf_scores: dict, identifiers: list) -> tuple:
         """Boost files that contain any of the extracted identifiers."""
         if not identifiers:
@@ -582,6 +657,11 @@ class Indexer:
         if identifiers:
             sys.stderr.write(f"[Indexer] Boosting files containing identifiers: {identifiers}\n")
             final_ids, rrf_scores = self._word_boost(final_ids, rrf_scores, identifiers)
+
+        # [v0.6.0] Declaration Boost (Birth Certificate Detection)
+        # Extra boost for files that actually DECLARE the identifier, not just mention it
+        if identifiers:
+            final_ids, rrf_scores = self._declaration_boost(final_ids, rrf_scores, identifiers)
 
         # [v0.4.0] Semantic Re-Ranking (Post-Fusion)
         # Give a boost to files that contain literal keywords from the query
