@@ -265,6 +265,54 @@ class Indexer:
         sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
         return sorted_ids, scores
 
+    def get_index_status(self, project_path: str):
+        indices_dir, hashes_path = self._get_paths(project_path)
+        
+        if not os.path.exists(hashes_path):
+            return {"status": "error", "message": "Index does not exist for this project."}
+            
+        known_hashes = self._load_hashes(hashes_path)
+        last_update = os.path.getmtime(hashes_path)
+        
+        # Check for files on disk not in index
+        files_on_disk = []
+        gitignore = GitignoreParser(project_path)
+        for root, dirs, files in os.walk(project_path):
+            if ".ace" in dirs: dirs.remove(".ace")
+            if ".git" in dirs: dirs.remove(".git")
+            if "node_modules" in dirs: dirs.remove("node_modules")
+            
+            if gitignore.match(root):
+                dirs[:] = []
+                continue
+                
+            for file in files:
+                filepath = os.path.join(root, file)
+                if not self._should_ignore(filepath, gitignore):
+                    # Check Whitelist
+                    if file.endswith((".html", ".htm", ".css", ".scss", ".less", ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".py", ".php", ".rb", ".go", ".java", ".cs", ".rs", ".kt", ".swift", ".dart", ".sh", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".env", ".sql", ".md", ".txt")):
+                        files_on_disk.append(filepath)
+        
+        missing_from_index = [f for f in files_on_disk if f not in known_hashes]
+        
+        return {
+            "status": "ok",
+            "indexed_files_count": len(known_hashes),
+            "last_update": last_update,
+            "missing_from_index_count": len(missing_from_index),
+            "missing_files_sample": missing_from_index[:10]
+        }
+
+    def list_indexed_files(self, project_path: str, pattern: str = None):
+        _, hashes_path = self._get_paths(project_path)
+        known_hashes = self._load_hashes(hashes_path)
+        
+        files = list(known_hashes.keys())
+        if pattern:
+            files = [f for f in files if fnmatch.fnmatch(os.path.basename(f), pattern)]
+            
+        return files
+
     def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None):
         indices_dir, hashes_path = self._get_paths(project_path)
         
@@ -348,6 +396,33 @@ class Indexer:
                 res_docs.append(content)
             except Exception:
                 continue
+
+        # [v0.2.1] Better 0-Results logic
+        if not res_ids:
+            # Detect files on disk for helpful suggestion
+            gitignore = GitignoreParser(project_path)
+            # Just check if at least ONE file exists that matches the pattern but isn't indexed
+            disk_sample = []
+            for root, dirs, files in os.walk(project_path):
+                if ".ace" in dirs: dirs.remove(".ace")
+                if ".git" in dirs: dirs.remove(".git")
+                if gitignore.match(root):
+                    dirs[:] = []
+                    continue
+                for file in files:
+                    if file_pattern and not fnmatch.fnmatch(file, file_pattern): continue
+                    fpath = os.path.join(root, file)
+                    if fpath not in known_hashes and not self._should_ignore(fpath, gitignore):
+                        disk_sample.append(fpath)
+                        if len(disk_sample) >= 3: break
+                if len(disk_sample) >= 3: break
+
+            res_metas = [{
+                "status": "no_results",
+                "indexed_files": len(known_hashes),
+                "pattern": file_pattern or "*",
+                "missing_files": disk_sample
+            }]
 
         return {
             "ids": [res_ids],
