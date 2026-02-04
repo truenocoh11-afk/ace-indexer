@@ -311,7 +311,21 @@ class Indexer:
         
         files = list(known_hashes.keys())
         if pattern:
-            files = [f for f in files if fnmatch.fnmatch(os.path.basename(f), pattern)]
+            # Normalize pattern to use forward slashes
+            norm_pattern = pattern.replace('\\', '/')
+            
+            def matches(filepath):
+                # Normalize filepath to use forward slashes for consistent matching
+                norm_path = filepath.replace('\\', '/')
+                # Try matching against full path first
+                if fnmatch.fnmatch(norm_path, norm_pattern):
+                    return True
+                # Also try matching just the filename (for simple patterns like "*.py")
+                if fnmatch.fnmatch(os.path.basename(filepath), pattern):
+                    return True
+                return False
+            
+            files = [f for f in files if matches(f)]
             
         return files
 
