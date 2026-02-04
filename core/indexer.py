@@ -411,12 +411,12 @@ class Indexer:
 
     def _extract_identifiers(self, query: str) -> list:
         """Extract code identifiers from query (camelCase, snake_case, PascalCase)."""
-        # Patterns for common code identifier styles
+        # Patterns for common code identifier styles (without word boundaries for better matching)
         patterns = [
-            r'\b[a-z]+[A-Z][a-zA-Z0-9]*\b',   # camelCase
-            r'\b[A-Z][a-z]+[A-Z][a-zA-Z0-9]*\b',  # PascalCase
-            r'\b[a-z]+_[a-z0-9_]+\b',            # snake_case
-            r'\b[A-Z][A-Z0-9_]+\b',               # CONSTANT_CASE
+            r'[a-z]+[A-Z][a-zA-Z0-9]*',      # camelCase: lastAgentStats
+            r'[A-Z][a-z]+[A-Z][a-zA-Z0-9]*', # PascalCase: StateManager
+            r'[a-z]+_[a-z0-9_]+',            # snake_case: last_agent_stats
+            r'[A-Z]{2}[A-Z0-9_]+',           # CONSTANT_CASE: TLE_URL (at least 2 caps)
         ]
         identifiers = []
         for p in patterns:
