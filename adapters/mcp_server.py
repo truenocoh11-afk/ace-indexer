@@ -18,7 +18,7 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.6.1] 💎 RECOMMENDED. Hybrid search with Declaration Boost. Detects concepts, identifiers, CSS selectors, and exact variable declarations.",
+                description="[v0.6.3] 💎 RECOMMENDED. Hybrid search with Declaration Boost. Detects declarations in 10+ languages (Back/Front/Ops/SQL).",
                 inputSchema={
                     "type": "object",
                     "properties": {

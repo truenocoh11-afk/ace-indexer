@@ -462,10 +462,40 @@ class Indexer:
             r'{ident}\s*=\s*function\s*\(',
             r'{ident}\s*=\s*\([^)]*\)\s*=>',
             # CSS/SCSS/LESS
-            r'\.{ident}\s*\{',    # Class selector: .badge-amber {
-            r'\#{ident}\s*\{',    # ID selector: #app {
-            r'@{ident}\s+',       # At-rule: @media, @keyframes
-            r'--{ident}\s*:',     # CSS Variable: --main-bg:
+            r'\.{ident}\s*\{',    # Class selector
+            r'\#{ident}\s*\{',    # ID selector
+            r'@{ident}\s+',       # At-rule
+            r'--{ident}\s*:',     # CSS Variable
+            
+            # Go (Golang)
+            r'func\s+{ident}\s*\(',
+            r'type\s+{ident}\s+(?:struct|interface)',
+            r'{ident}\s*:=\s*',
+            
+            # Rust
+            r'(?:let|const)\s+(?:mut\s+)?{ident}\s*[=:]',
+            r'fn\s+{ident}\s*[\(<]',
+            r'(?:struct|enum|trait|mod)\s+{ident}',
+            r'macro_rules!\s+{ident}',
+
+            # Terraform (HCL)
+            r'(?:resource|module|variable|output)\s+"[^"]+"\s+"{ident}"', 
+            r'(?:variable|module|output)\s+"{ident}"',
+            
+            # SQL
+            r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|PROCEDURE|FUNCTION|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?{ident}',
+
+            # HTML & Web Components
+            r'id=["\']{ident}["\']',              # id="app"
+            r'name=["\']{ident}["\']',            # name="email"
+            r'slot=["\']{ident}["\']',            # slot="header"
+            
+            # Frameworks (React, Vue, Angular)
+            r'ref=["\']{ident}["\']',             # ref="myInput" (Vue/React)
+            r'#{ident}\b',                        # #myVar (Angular template var)
+            
+            # Testing / Data Attributes
+            r'data-test-?id=["\']{ident}["\']',   # data-testid="submit-btn"
         ]
         
         MAX_BOOST = 1.5  # Cap to prevent over-ranking
