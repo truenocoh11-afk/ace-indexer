@@ -18,7 +18,7 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.2.1] 🔥 RECOMMENDED for conceptual searches. Finds logic even when text differs. Semantic + Keyword Hybrid.",
+                description="[v0.3.0] 🔥 RECOMMENDED. Smart hybrid search. Automatically detects if you are searching for code literals (variables, functions) or concepts.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -68,7 +68,7 @@ def create_mcp_server():
 
     @app.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-        sys.stderr.write(f"[DEBUG] call_tool invoked: {name} with {arguments}\n")
+        print(f"[DEBUG] call_tool invoked: {name} with {arguments}")
         
         try:
             if name == "ace_search_code":

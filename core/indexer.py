@@ -3,6 +3,7 @@ import hashlib
 import json
 import chromadb
 import fnmatch
+import re
 from chromadb.config import Settings
 from .skeletonizer import Skeletonizer
 
@@ -116,27 +117,23 @@ class Indexer:
         # 1. Explicit Pattern Blacklist
         for pattern in self.IGNORED_PATTERNS:
             if fnmatch.fnmatch(filename, pattern):
-                import sys
-                sys.stderr.write(f"[Indexer] Ignoring {filename} (Matched pattern: {pattern})\n")
+                print(f"[Indexer] Ignoring {filename} (Matched pattern: {pattern})")
                 return True
         
         # 2. Gitignore Check
         if gitignore.match(filepath):
-            import sys
-            sys.stderr.write(f"[Indexer] Ignoring {filename} (Matched .gitignore)\n")
+            print(f"[Indexer] Ignoring {filename} (Matched .gitignore)")
             return True
             
         # 3. Binary Check
         if self._is_binary_file(filepath):
-            import sys
-            sys.stderr.write(f"[Indexer] Ignoring {filename} (Detected Binary)\n")
+            print(f"[Indexer] Ignoring {filename} (Detected Binary)")
             return True
             
         return False
 
     def index_project(self, project_path: str, force: bool = False):
-        import sys
-        sys.stderr.write(f"[Indexer] Indexing project: {project_path}\n")
+        print(f"[Indexer] Indexing project: {project_path}")
         
         indices_dir, hashes_path = self._get_paths(project_path)
         
@@ -201,14 +198,12 @@ class Indexer:
 
         # Process Deletions
         if ids_to_delete:
-            import sys
-            sys.stderr.write(f"[Indexer] Removing {len(ids_to_delete)} stale files.\n")
+            print(f"[Indexer] Removing {len(ids_to_delete)} stale files.")
             collection.delete(ids=ids_to_delete)
 
         # Process Additions/Updates
         if files_to_index:
-            import sys
-            sys.stderr.write(f"[Indexer] Indexing {len(files_to_index)} new/changed files.\n")
+            print(f"[Indexer] Indexing {len(files_to_index)} new/changed files.")
             documents = []
             metadatas = []
             ids = []
@@ -228,8 +223,7 @@ class Indexer:
                     })
                     ids.append(filepath)
                 except Exception as e:
-                    import sys
-                    sys.stderr.write(f"Error indexing {filepath}: {e}\n")
+                    print(f"Error indexing {filepath}: {e}")
 
             # Batch add
             batch_size = 100
@@ -320,13 +314,70 @@ class Indexer:
             
         return files
 
+    def _classify_query(self, query: str) -> str:
+        """
+        Returns: 'literal' | 'conceptual'
+        """
+        # Heuristics for detecting identifiers or code-specific snippets
+        patterns = [
+            r'^[a-z]+[A-Z]',           # camelCase: lastAgentStats
+            r'^[A-Z][a-z]+[A-Z]',      # PascalCase: UserService
+            r'[a-z]_[a-z]',            # snake_case: user_id
+            r'\(',                     # Function call: handleRequest(
+            r'\.',                     # Member access: this.value
+            r'^[A-Z0-0_]+$',           # CONSTANTE: MAX_RETRIES
+            r'\[',                     # Array access: items[0]
+            r'/',                      # File path: monitor/server.js
+        ]
+        
+        for p in patterns:
+            if re.search(p, query):
+                return 'literal'
+        
+        # If it has spaces and several words, it more likely matches a concept
+        if ' ' in query and len(query.split()) > 2:
+            return 'conceptual'
+        
+        # Default to literal for single words that might be variables
+        return 'literal'
+
+    def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None) -> list:
+        """Internal fast grep for literal string matches in indexed files."""
+        matches = []
+        _, hashes_path = self._get_paths(project_path)
+        known_files = self._load_hashes(hashes_path)
+        
+        query_text_lower = query_text.lower()
+        
+        for filepath in known_files:
+            if file_pattern and not fnmatch.fnmatch(os.path.basename(filepath), file_pattern):
+                continue
+            
+            try:
+                # Basic check for file existence (might have been moved/deleted but still in hashes)
+                if not os.path.exists(filepath):
+                    continue
+
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    if query_text_lower in content.lower():
+                        matches.append({"id": filepath})
+            except Exception:
+                continue
+        
+        return matches
+
     def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None):
         indices_dir, hashes_path = self._get_paths(project_path)
         
         if not os.path.exists(indices_dir):
              return {"ids": [], "metadatas": [], "documents": []}
 
-        # 1. Filename Search (Keyword)
+        # [v0.3.0] Smart Query Classification
+        query_type = self._classify_query(query_text)
+        print(f"[Indexer] Classified query '{query_text}' as: {query_type}")
+
+        # 1. Filename Search (Keyword) - Persistent Across Types
         known_hashes = self._load_hashes(hashes_path)
         filename_matches = []
         query_lower = query_text.lower()
@@ -353,21 +404,58 @@ class Indexer:
         # Sort filename matches by match_score
         filename_matches = sorted(filename_matches, key=lambda x: x["score"], reverse=True)
 
-        # 2. Vector Search (Semantic)
-        client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+        # 2. Hybrid Search: Literal (Grep) vs Semantic (Vector)
         vector_results = []
-        try:
-            collection = client.get_collection(name="project_context")
-            # We fetch more results than needed to allow for filtering
-            v_res = collection.query(query_texts=[query_text], n_results=n_results * 5)
-            ids = v_res.get("ids", [[]])[0]
-            for vid in ids:
-                # [Post-Filter] Check if the result matches the pattern
-                if file_pattern and not fnmatch.fnmatch(os.path.basename(vid), file_pattern):
-                    continue
-                vector_results.append({"id": vid})
-        except Exception:
-            pass
+        
+        if query_type == 'literal':
+            # Literal first: Use internal grep to find exact occurrences
+            literal_results = self._grep_search(project_path, query_text, file_pattern)
+            
+            # Use semantic as a companion search if literal results are thin
+            # or if we want to ensure we don't miss closely related concepts
+            try:
+                client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+                collection = client.get_collection(name="project_context")
+                v_res = collection.query(query_texts=[query_text], n_results=n_results * 5)
+                ids = v_res.get("ids", [[]])[0]
+                for vid in ids:
+                    if file_pattern and not fnmatch.fnmatch(os.path.basename(vid), file_pattern):
+                        continue
+                    vector_results.append({"id": vid})
+            except Exception:
+                pass
+            
+            # We treat literal_results with a higher weight in fusion
+            # By merging them into filename_matches conceptually (as high-confidence textual matches)
+            # OR we can pass them as a separate list to weighted_rrf.
+            # Let's add them to filename_matches with a high score if they aren't already there.
+            for match in literal_results:
+                existing = next((f for f in filename_matches if f["id"] == match["id"]), None)
+                if existing:
+                    existing["score"] += 15 # Boost even higher
+                else:
+                    filename_matches.append({"id": match["id"], "score": 8}) # High confidence text match
+        
+        else:
+            # Semantic first: Conceptual query
+            try:
+                client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+                collection = client.get_collection(name="project_context")
+                v_res = collection.query(query_texts=[query_text], n_results=n_results * 10)
+                ids = v_res.get("ids", [[]])[0]
+                for vid in ids:
+                    if file_pattern and not fnmatch.fnmatch(os.path.basename(vid), file_pattern):
+                        continue
+                    vector_results.append({"id": vid})
+            except Exception:
+                pass
+            
+            # Check grep as a safety net even in conceptual (maybe name of function matches concept)
+            literal_results = self._grep_search(project_path, query_text, file_pattern)
+            for match in literal_results:
+                if not any(v["id"] == match["id"] for v in vector_results):
+                    # Wrap it into filename_matches for fusion
+                    filename_matches.append({"id": match["id"], "score": 3})
 
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
