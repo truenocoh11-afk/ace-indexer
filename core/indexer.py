@@ -5,6 +5,7 @@ import chromadb
 import fnmatch
 import re
 from chromadb.config import Settings
+import sys
 from .skeletonizer import Skeletonizer
 
 class GitignoreParser:
@@ -117,23 +118,23 @@ class Indexer:
         # 1. Explicit Pattern Blacklist
         for pattern in self.IGNORED_PATTERNS:
             if fnmatch.fnmatch(filename, pattern):
-                print(f"[Indexer] Ignoring {filename} (Matched pattern: {pattern})")
+                sys.stderr.write(f"[Indexer] Ignoring {filename} (Matched pattern: {pattern})\n")
                 return True
         
         # 2. Gitignore Check
         if gitignore.match(filepath):
-            print(f"[Indexer] Ignoring {filename} (Matched .gitignore)")
+            sys.stderr.write(f"[Indexer] Ignoring {filename} (Matched .gitignore)\n")
             return True
             
         # 3. Binary Check
         if self._is_binary_file(filepath):
-            print(f"[Indexer] Ignoring {filename} (Detected Binary)")
+            sys.stderr.write(f"[Indexer] Ignoring {filename} (Detected Binary)\n")
             return True
             
         return False
 
     def index_project(self, project_path: str, force: bool = False):
-        print(f"[Indexer] Indexing project: {project_path}")
+        sys.stderr.write(f"[Indexer] Indexing project: {project_path}\n")
         
         indices_dir, hashes_path = self._get_paths(project_path)
         
@@ -198,12 +199,12 @@ class Indexer:
 
         # Process Deletions
         if ids_to_delete:
-            print(f"[Indexer] Removing {len(ids_to_delete)} stale files.")
+            sys.stderr.write(f"[Indexer] Removing {len(ids_to_delete)} stale files.\n")
             collection.delete(ids=ids_to_delete)
 
         # Process Additions/Updates
         if files_to_index:
-            print(f"[Indexer] Indexing {len(files_to_index)} new/changed files.")
+            sys.stderr.write(f"[Indexer] Indexing {len(files_to_index)} new/changed files.\n")
             documents = []
             metadatas = []
             ids = []
@@ -223,7 +224,7 @@ class Indexer:
                     })
                     ids.append(filepath)
                 except Exception as e:
-                    print(f"Error indexing {filepath}: {e}")
+                    sys.stderr.write(f"Error indexing {filepath}: {e}\n")
 
             # Batch add
             batch_size = 100
@@ -375,7 +376,7 @@ class Indexer:
 
         # [v0.3.0] Smart Query Classification
         query_type = self._classify_query(query_text)
-        print(f"[Indexer] Classified query '{query_text}' as: {query_type}")
+        sys.stderr.write(f"[Indexer] Classified query '{query_text}' as: {query_type}\n")
 
         # 1. Filename Search (Keyword) - Persistent Across Types
         known_hashes = self._load_hashes(hashes_path)

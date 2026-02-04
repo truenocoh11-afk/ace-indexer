@@ -68,7 +68,8 @@ def create_mcp_server():
 
     @app.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-        print(f"[DEBUG] call_tool invoked: {name} with {arguments}")
+        import sys
+        sys.stderr.write(f"[DEBUG] call_tool invoked: {name} with {arguments}\\n")
         
         try:
             if name == "ace_search_code":
