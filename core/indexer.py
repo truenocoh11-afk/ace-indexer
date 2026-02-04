@@ -461,6 +461,11 @@ class Indexer:
             r'function\s+{ident}\s*\(',
             r'{ident}\s*=\s*function\s*\(',
             r'{ident}\s*=\s*\([^)]*\)\s*=>',
+            # CSS/SCSS/LESS
+            r'\.{ident}\s*\{',    # Class selector: .badge-amber {
+            r'\#{ident}\s*\{',    # ID selector: #app {
+            r'@{ident}\s+',       # At-rule: @media, @keyframes
+            r'--{ident}\s*:',     # CSS Variable: --main-bg:
         ]
         
         MAX_BOOST = 1.5  # Cap to prevent over-ranking

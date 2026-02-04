@@ -1,6 +1,6 @@
 [project]
 name = "ace-indexer"
-version = "0.6.0"
+version = "0.6.1"
 description = "Antigravity Context Engine (ACE) - Local Codebase Indexer & Semantic Search"
 authors = [
     { name = "Julian", email = "julian@example.com" }
