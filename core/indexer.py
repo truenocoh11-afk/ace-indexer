@@ -376,9 +376,6 @@ class Indexer:
         
         return False
 
-
-        return False
-
     def _extract_keywords(self, query: str) -> list:
         """Extract meaningful keywords from query, removing stopwords."""
         stopwords = {'the', 'a', 'an', 'of', 'to', 'for', 'in', 'on', 'is', 'are', 'was', 'were', 'and', 'with', 'about', 'logic', 'calculate', 'initialization'}
