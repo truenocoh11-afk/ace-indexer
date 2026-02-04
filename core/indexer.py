@@ -377,6 +377,41 @@ class Indexer:
         return False
 
 
+        return False
+
+    def _extract_keywords(self, query: str) -> list:
+        """Extract meaningful keywords from query, removing stopwords."""
+        stopwords = {'the', 'a', 'an', 'of', 'to', 'for', 'in', 'on', 'is', 'are', 'was', 'were', 'and', 'with', 'about', 'logic', 'calculate', 'initialization'}
+        words = re.findall(r'\w+', query.lower())
+        return [w for w in words if w not in stopwords and len(w) > 2]
+
+    def _rerank_results(self, final_ids: list, rrf_scores: dict, query_keywords: list) -> list:
+        """Re-rank final fusion results by counting literal keyword matches in content."""
+        if not query_keywords:
+            return final_ids, rrf_scores
+            
+        boosted_scores = rrf_scores.copy()
+        
+        # Only re-rank the top candidates to avoid excessive I/O
+        candidates = final_ids[:15]
+        
+        for filepath in candidates:
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read().lower()
+                
+                # Count keyword hits
+                hits = sum(1 for kw in query_keywords if kw in content)
+                # Apply boost: RRF scores are small, so 0.1 per hit is significant
+                boosted_scores[filepath] += (hits * 0.1)
+            except Exception:
+                continue
+        
+        # Re-sort ALL ids by boosted score
+        # (Though only candidates were changed, we sort everything to keep consistency)
+        new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores[x], reverse=True)
+        return new_sorted_ids, boosted_scores
+
     def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None) -> list:
         """Internal fast grep for literal string matches in indexed files."""
         matches = []
@@ -496,6 +531,13 @@ class Indexer:
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
         
+        # [v0.4.0] Semantic Re-Ranking (Post-Fusion)
+        # Give a boost to files that contain literal keywords from the query
+        if query_type == 'conceptual':
+            keywords = self._extract_keywords(query_text)
+            sys.stderr.write(f"[Indexer] Re-ranking with keywords: {keywords}\n")
+            final_ids, rrf_scores = self._rerank_results(final_ids, rrf_scores, keywords)
+
         # 4. Filter & Build Final Response
         res_ids = []
         res_metas = []

@@ -18,7 +18,7 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.3.0] 🔥 RECOMMENDED. Smart hybrid search. Automatically detects if you are searching for code literals (variables, functions) or concepts.",
+                description="[v0.4.0] 🔥 RECOMMENDED. Smart hybrid search with re-ranking. Automatically detects if you are searching for code literals or concepts.",
                 inputSchema={
                     "type": "object",
                     "properties": {
