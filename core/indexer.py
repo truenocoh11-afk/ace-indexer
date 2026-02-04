@@ -319,28 +319,63 @@ class Indexer:
         """
         Returns: 'literal' | 'conceptual'
         """
-        # Heuristics for detecting identifiers or code-specific snippets
-        patterns = [
+        # [v0.3.1] Check EACH WORD in query for code patterns
+        words = query.split()
+        
+        # Patterns that indicate a code literal (applied to each word)
+        word_patterns = [
             r'^[a-z]+[A-Z]',           # camelCase: lastAgentStats
             r'^[A-Z][a-z]+[A-Z]',      # PascalCase: UserService
             r'[a-z]_[a-z]',            # snake_case: user_id
+            r'^[A-Z][A-Z0-9_]+$',      # CONSTANTE: MAX_RETRIES
+        ]
+        
+        for word in words:
+            for p in word_patterns:
+                if re.search(p, word):
+                    return 'literal'
+        
+        # Global patterns (applied to full query)
+        global_patterns = [
             r'\(',                     # Function call: handleRequest(
             r'\.',                     # Member access: this.value
-            r'^[A-Z0-0_]+$',           # CONSTANTE: MAX_RETRIES
             r'\[',                     # Array access: items[0]
             r'/',                      # File path: monitor/server.js
         ]
         
-        for p in patterns:
+        for p in global_patterns:
             if re.search(p, query):
                 return 'literal'
         
-        # If it has spaces and several words, it more likely matches a concept
-        if ' ' in query and len(query.split()) > 2:
+        # If it's a long natural language phrase, likely conceptual
+        if len(words) > 3:
             return 'conceptual'
         
-        # Default to literal for single words that might be variables
+        # Default to literal for short phrases that might be code
         return 'literal'
+
+    def _matches_file_pattern(self, filepath: str, project_path: str, file_pattern: str) -> bool:
+        """Check if file matches pattern. Supports both filename and path patterns."""
+        if not file_pattern:
+            return True
+        
+        filename = os.path.basename(filepath)
+        rel_path = os.path.relpath(filepath, project_path).replace(os.sep, '/')
+        
+        # Try matching against filename first (most common case)
+        if fnmatch.fnmatch(filename, file_pattern):
+            return True
+        
+        # Try matching against relative path (for patterns like "monitor/server.js")
+        if fnmatch.fnmatch(rel_path, file_pattern):
+            return True
+        
+        # Try matching against relative path with wildcards (for patterns like "*/server.js")
+        if fnmatch.fnmatch(rel_path, f"*/{file_pattern}"):
+            return True
+        
+        return False
+
 
     def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None) -> list:
         """Internal fast grep for literal string matches in indexed files."""
@@ -351,7 +386,7 @@ class Indexer:
         query_text_lower = query_text.lower()
         
         for filepath in known_files:
-            if file_pattern and not fnmatch.fnmatch(os.path.basename(filepath), file_pattern):
+            if not self._matches_file_pattern(filepath, project_path, file_pattern):
                 continue
             
             try:
@@ -386,8 +421,8 @@ class Indexer:
         for path in known_hashes:
             filename = os.path.basename(path)
             
-            # [Optimization] If file_pattern is provided, skip filename check for non-matching files early
-            if file_pattern and not fnmatch.fnmatch(filename, file_pattern):
+            # [Optimization] If file_pattern is provided, skip non-matching files early
+            if not self._matches_file_pattern(path, project_path, file_pattern):
                 continue
 
             filename_lower = filename.lower()
@@ -420,7 +455,7 @@ class Indexer:
                 v_res = collection.query(query_texts=[query_text], n_results=n_results * 5)
                 ids = v_res.get("ids", [[]])[0]
                 for vid in ids:
-                    if file_pattern and not fnmatch.fnmatch(os.path.basename(vid), file_pattern):
+                    if not self._matches_file_pattern(vid, project_path, file_pattern):
                         continue
                     vector_results.append({"id": vid})
             except Exception:
@@ -445,7 +480,7 @@ class Indexer:
                 v_res = collection.query(query_texts=[query_text], n_results=n_results * 10)
                 ids = v_res.get("ids", [[]])[0]
                 for vid in ids:
-                    if file_pattern and not fnmatch.fnmatch(os.path.basename(vid), file_pattern):
+                    if not self._matches_file_pattern(vid, project_path, file_pattern):
                         continue
                     vector_results.append({"id": vid})
             except Exception:
