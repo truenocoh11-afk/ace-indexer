@@ -63,13 +63,38 @@ def create_mcp_server():
                     },
                     "required": ["project_path"]
                 }
+            ),
+            types.Tool(
+                name="ace_boot_memory",
+                description="[START OF SESSION] Read ALL project memory files. Call this when starting a new conversation to restore context.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string", "description": "Absolute path to the project root"}
+                    },
+                    "required": ["project_path"]
+                }
+            ),
+            types.Tool(
+                name="ace_update_memory",
+                description="Update a specific memory file. Use at the END of a task to save progress.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string", "description": "Absolute path to the project root"},
+                        "memory_type": {"type": "string", "enum": ["context", "task", "lessons"], "description": "Which memory to update"},
+                        "content": {"type": "string", "description": "Content to write"},
+                        "append": {"type": "boolean", "description": "Append instead of overwrite", "default": False}
+                    },
+                    "required": ["project_path", "memory_type", "content"]
+                }
             )
         ]
 
     @app.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
         import sys
-        sys.stderr.write(f"[DEBUG] call_tool invoked: {name} with {arguments}\\n")
+        sys.stderr.write(f"[DEBUG] call_tool invoked: {name} with {arguments}\n")
         
         try:
             if name == "ace_search_code":
@@ -169,6 +194,23 @@ def create_mcp_server():
                 
                 msg = f"Project Indexed Successfully.\nStats: {stats}"
                 return [types.TextContent(type="text", text=msg)]
+
+            elif name == "ace_boot_memory":
+                from core.memory import MemoryManager
+                project_path = arguments.get("project_path")
+                manager = MemoryManager(project_path)
+                content = manager.read("all")
+                return [types.TextContent(type="text", text=content)]
+
+            elif name == "ace_update_memory":
+                from core.memory import MemoryManager
+                project_path = arguments.get("project_path")
+                memory_type = arguments.get("memory_type")
+                content = arguments.get("content")
+                append = arguments.get("append", False)
+                manager = MemoryManager(project_path)
+                result = manager.write(memory_type, content, append)
+                return [types.TextContent(type="text", text=result)]
                 
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
             
@@ -178,5 +220,6 @@ def create_mcp_server():
             return [types.TextContent(type="text", text=f"Error executing tool {name}: {str(e)}")]
     
     return app
+
 
 
