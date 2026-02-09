@@ -17,8 +17,10 @@ import json
 import hashlib
 import sys
 
-def index_dir(path, extensions_str):
+def index_dir(path, extensions_str, exclude_dirs_str=""):
     exts = [e.strip() for e in extensions_str.split(',') if e.strip()]
+    custom_excludes = [e.strip() for e in exclude_dirs_str.split(',') if e.strip()]
+    
     results = []
     
     # Normalize path
@@ -28,10 +30,12 @@ def index_dir(path, extensions_str):
         print(json.dumps({"error": f"Path not found: {path}"}))
         return
 
-    for root, _, filenames in os.walk(path):
-        # Skip common bulky/hidden dirs
-        if any(d in root for d in [".git", "node_modules", "__pycache__", ".ace"]):
-            continue
+    # Standard + Custom excludes
+    skip_dirs = {".git", "node_modules", "__pycache__", ".ace"} | set(custom_excludes)
+
+    for root, dirs, filenames in os.walk(path):
+        # Skip excluded dirs in-place to optimize walk
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
             
         for f in filenames:
             if any(f.endswith(e) for e in exts):
@@ -45,9 +49,15 @@ def index_dir(path, extensions_str):
                         "path": full_path,
                         "size": len(content),
                         "hash": hashlib.md5(content.encode()).hexdigest()[:12],
-                        "snippet": content[:2500] # Enough for local contextual embedding
+                        "snippet": content[:2500] 
                     })
-                except Exception as e:
+                    
+                    # Streaming Progress to stderr
+                    if len(results) % 25 == 0:
+                        sys.stderr.write(f"[PROGRESS] {len(results)} files indexed...\\n")
+                        sys.stderr.flush()
+
+                except Exception:
                     pass
                     
     print(json.dumps({
@@ -63,7 +73,8 @@ if __name__ == "__main__":
     
     target_path = sys.argv[1]
     exts = sys.argv[2] if len(sys.argv) > 2 else ".py,.js,.ts,.html,.css,.json,.md"
-    index_dir(target_path, exts)
+    excludes = sys.argv[3] if len(sys.argv) > 3 else ""
+    index_dir(target_path, exts, excludes)
 """
 
     def __init__(self, project_path: str):
@@ -88,6 +99,7 @@ if __name__ == "__main__":
         ssh_host = overrides.get("ssh_host") or config.get("ssh_host")
         identity_file = overrides.get("identity_file") or config.get("identity_file")
         remote_path = overrides.get("remote_path") or config.get("remote_path")
+        exclude_dirs = overrides.get("exclude_dirs") or config.get("exclude_dirs", "")
         
         if not (ssh_alias or ssh_host):
             raise ValueError(f"No SSH host or alias found for environment '{env_name}'")
@@ -109,24 +121,60 @@ if __name__ == "__main__":
         return {
             "ssh_base": ssh_base,
             "remote_path": remote_path,
-            "target": target
+            "target": target,
+            "exclude_dirs": exclude_dirs
         }
 
-    def sync_remote(self, env_name: str, **kwargs) -> dict:
+    def count_remote_files(self, env_name: str, **overrides) -> dict:
+        """Phase 1: Fast count of remote files (Dry-Run)."""
+        params = self._resolve_ssh_params(env_name, overrides)
+        ssh_base = params["ssh_base"]
+        remote_path = params["remote_path"]
+        
+        # Build find command for extensions
+        exts = overrides.get("file_extensions") or ".py,.js,.ts,.html,.css,.json,.md"
+        ext_list = [e.strip() for e in exts.split(',') if e.strip()]
+        
+        # Skip certain dirs in count as well
+        skip_pattern = "-not -path '*/.*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*'"
+        if params["exclude_dirs"]:
+            for d in params["exclude_dirs"].split(','):
+                skip_pattern += f" -not -path '*/{d.strip()}/*'"
+
+        find_parts = []
+        for ext in ext_list:
+            find_parts.append(f"-name '*{ext}'")
+        
+        find_cmd = f"find {remote_path} -type f \\( {' -o '.join(find_parts)} \\) {skip_pattern} | wc -l"
+        
+        try:
+            sys.stderr.write(f"🌐 Connecting for dry-run: {params['target']}...\n")
+            process = subprocess.run(ssh_base + [find_cmd], capture_output=True, text=True, check=True)
+            count = int(process.stdout.strip())
+            return {
+                "status": "pending",
+                "env_name": env_name,
+                "file_count": count,
+                "message": f"📊 Found {count} files to index in {env_name}. Proceed with ace_sync_remote_execute?"
+            }
+        except Exception as e:
+            raise RuntimeError(f"Failed to count remote files: {str(e)}")
+
+    def sync_remote(self, env_name: str, **overrides) -> dict:
         """
         Executes the remote sync flow:
         1. Deploy ephemeral script via SSH stdin
         2. Run script on remote and capture JSON output
         3. Clean up remote script
         """
-        params = self._resolve_ssh_params(env_name, kwargs)
+        params = self._resolve_ssh_params(env_name, overrides)
         ssh_base = params["ssh_base"]
         remote_path = params["remote_path"]
+        exclude_dirs = params["exclude_dirs"]
         
-        exts = kwargs.get("file_extensions", ".py,.js,.ts,.html,.css,.json,.md")
-        
+        exts = overrides.get("file_extensions") or ".py,.js,.ts,.html,.css,.json,.md"
+
         # 1. Deploy script
-        # Using a heredoc-style cat to avoid needing SCP
         deploy_cmd = (
             f"cat > /tmp/ace_remote_idx.py << 'EOFSCRIPT'\n"
             f"{self.REMOTE_SCRIPT}\n"
@@ -137,29 +185,65 @@ if __name__ == "__main__":
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Failed to deploy remote script: {e.stderr}")
 
-        # 2. Execute script
-        exec_cmd = f"python3 /tmp/ace_remote_idx.py '{remote_path}' '{exts}'"
+        # 2. Execute script with Streaming Progress
+        exec_cmd = f"python3 /tmp/ace_remote_idx.py '{remote_path}' '{exts}' '{exclude_dirs}'"
+        
         try:
-            process = subprocess.run(ssh_base + [exec_cmd], capture_output=True, text=True, check=True)
-            output = process.stdout.strip()
+            sys.stderr.write(f"🚀 Executing remote indexing indexing on {params['target']}...\n")
             
-            # Find the JSON part (in case of MOTD etc)
+            # Use Popen to read stderr in real-time
+            process = subprocess.Popen(
+                ssh_base + [exec_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            stdout_data = []
+            
+            # Monitoring threads or simple select/loop
+            while True:
+                # Read stderr for progress messages
+                line = process.stderr.readline()
+                if line:
+                    if "[PROGRESS]" in line:
+                        sys.stderr.write(line) # Pipe to local stderr
+                    continue
+                
+                # Read stdout for final JSON
+                stdout_line = process.stdout.readline()
+                if stdout_line:
+                    stdout_data.append(stdout_line)
+                
+                if process.poll() is not None:
+                    # Final read of remaining stdout and stderr
+                    stdout_data.append(process.stdout.read())
+                    # Read any remaining stderr
+                    while True:
+                        remaining_stderr_line = process.stderr.readline()
+                        if not remaining_stderr_line:
+                            break
+                        if "[PROGRESS]" in remaining_stderr_line:
+                            sys.stderr.write(remaining_stderr_line)
+                    break
+                    
+            process.wait()
+            output = "".join(stdout_data).strip()
+            
+            # Find the JSON part
             json_start = output.find('{"')
             if json_start == -1:
-                raise ValueError(f"No valid JSON found in remote output: {output}")
+                raise ValueError(f"No valid JSON found in remote output. Stderr: {process.stderr.read()}")
             
             data = json.loads(output[json_start:])
             if "error" in data:
                 raise RuntimeError(f"Remote error: {data['error']}")
                 
-            # Add environment metadata
             data["env_name"] = env_name
             return data
             
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to execute remote indexing: {e.stderr}")
-        except json.JSONDecodeError:
-            raise RuntimeError(f"Invalid JSON received from remote")
+        except Exception as e:
+            raise RuntimeError(f"Failed to execute remote indexing: {str(e)}")
         finally:
             # 3. Cleanup
             subprocess.run(ssh_base + ["rm -f /tmp/ace_remote_idx.py"], check=False)

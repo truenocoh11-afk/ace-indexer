@@ -61,7 +61,8 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.8.0] 💎 Hybrid search (Health, Hints & Remote). project_path is OPTIONAL.",
+                description="[v0.8.1] 💎 Hybrid search (Health, Hints & Remote). project_path is OPTIONAL.",
+
 
                 inputSchema={
                     "type": "object",
@@ -75,7 +76,7 @@ def create_mcp_server():
             ),
             types.Tool(
                 name="ace_sync_remote_index",
-                description="[v0.8.0] 🌐 Index remote files via SSH without downloading.",
+                description="[v0.8.1] 🌐 Phase 1: Count remote files (Dry-Run). Requires confirmation to proceed.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -85,13 +86,29 @@ def create_mcp_server():
                         "ssh_host": {"type": "string", "description": "Direct SSH host (user@ip)"},
                         "identity_file": {"type": "string", "description": "Path to SSH key"},
                         "remote_path": {"type": "string", "description": "Path on remote server"},
-                        "file_extensions": {"type": "string", "description": "Comma-separated extensions"}
+                        "file_extensions": {"type": "string", "description": "Comma-separated extensions"},
+                        "exclude_dirs": {"type": "string", "description": "Comma-separated dirs to skip"}
+                    },
+                    "required": ["env_name"]
+                }
+            ),
+            types.Tool(
+                name="ace_sync_remote_execute",
+                description="[v0.8.1] 🚀 Phase 2: Execute remote indexing after user confirmation.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string"},
+                        "env_name": {"type": "string", "description": "Env name"},
+                        "file_extensions": {"type": "string"},
+                        "exclude_dirs": {"type": "string"}
                     },
                     "required": ["env_name"]
                 }
             ),
             types.Tool(
                 name="ace_index_status",
+
 
                 description="Check index health. project_path is OPTIONAL.",
                 inputSchema={
@@ -280,19 +297,34 @@ def create_mcp_server():
                 env_name = arguments.get("env_name")
                 
                 remote_indexer = RemoteIndexer(project_path)
-                data = remote_indexer.sync_remote(
+                result = remote_indexer.count_remote_files(
                     env_name=env_name,
                     ssh_alias=arguments.get("ssh_alias"),
                     ssh_host=arguments.get("ssh_host"),
                     identity_file=arguments.get("identity_file"),
                     remote_path=arguments.get("remote_path"),
-                    file_extensions=arguments.get("file_extensions")
+                    file_extensions=arguments.get("file_extensions"),
+                    exclude_dirs=arguments.get("exclude_dirs")
+                )
+                
+                return [types.TextContent(type="text", text=result["message"])]
+
+            elif name == "ace_sync_remote_execute":
+                project_path = resolve_project_path(arguments)
+                env_name = arguments.get("env_name")
+                
+                remote_indexer = RemoteIndexer(project_path)
+                data = remote_indexer.sync_remote(
+                    env_name=env_name,
+                    file_extensions=arguments.get("file_extensions"),
+                    exclude_dirs=arguments.get("exclude_dirs")
                 )
                 
                 # Ingest into local index
                 ingest_stats = indexer.index_remote_data(project_path, data)
                 
                 return [types.TextContent(type="text", text=f"🌐 Remote Sync Completed for '{env_name}'.\nFiles indexed: {ingest_stats['indexed']}\nAll remote snippets are now searchable locally.")]
+
 
                 
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
