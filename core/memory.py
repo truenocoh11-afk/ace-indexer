@@ -100,8 +100,12 @@ class MemoryManager:
                 if append:
                     f.write("\n")
                 f.write(content + "\n")
-            return f"[OK] Escrito en {memory_type}"
+            msg = f"[OK] Escrito en {memory_type}"
+            if memory_type in ["context", "task"]:
+                msg += "\n\n💡 SELF-CHECK: ¿La información registrada permite a un agente sin historial operar este proyecto?"
+            return msg
         except Exception as e:
+
             return f"[ERROR] Falló la escritura: {str(e)}"
 
     def has_booted(self) -> bool:
