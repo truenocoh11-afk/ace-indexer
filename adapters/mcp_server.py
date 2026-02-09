@@ -61,7 +61,8 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.8.1] 💎 Hybrid search (Health, Hints & Remote). project_path is OPTIONAL.",
+                description="[v0.8.2] 💎 Hybrid search (Health, Hints & Remote). project_path is OPTIONAL.",
+
 
 
                 inputSchema={
@@ -94,18 +95,23 @@ def create_mcp_server():
             ),
             types.Tool(
                 name="ace_sync_remote_execute",
-                description="[v0.8.1] 🚀 Phase 2: Execute remote indexing after user confirmation.",
+                description="[v0.8.2] 🚀 Phase 2: Execute remote indexing after user confirmation.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "project_path": {"type": "string"},
                         "env_name": {"type": "string", "description": "Env name"},
+                        "ssh_alias": {"type": "string"},
+                        "ssh_host": {"type": "string"},
+                        "identity_file": {"type": "string"},
+                        "remote_path": {"type": "string"},
                         "file_extensions": {"type": "string"},
                         "exclude_dirs": {"type": "string"}
                     },
                     "required": ["env_name"]
                 }
             ),
+
             types.Tool(
                 name="ace_index_status",
 
@@ -316,6 +322,10 @@ def create_mcp_server():
                 remote_indexer = RemoteIndexer(project_path)
                 data = remote_indexer.sync_remote(
                     env_name=env_name,
+                    ssh_alias=arguments.get("ssh_alias"),
+                    ssh_host=arguments.get("ssh_host"),
+                    identity_file=arguments.get("identity_file"),
+                    remote_path=arguments.get("remote_path"),
                     file_extensions=arguments.get("file_extensions"),
                     exclude_dirs=arguments.get("exclude_dirs")
                 )
@@ -324,6 +334,7 @@ def create_mcp_server():
                 ingest_stats = indexer.index_remote_data(project_path, data)
                 
                 return [types.TextContent(type="text", text=f"🌐 Remote Sync Completed for '{env_name}'.\nFiles indexed: {ingest_stats['indexed']}\nAll remote snippets are now searchable locally.")]
+
 
 
                 
