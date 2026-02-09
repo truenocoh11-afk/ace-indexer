@@ -90,6 +90,32 @@ if __name__ == "__main__":
                 return {}
         return {}
 
+    def _parse_ssh_config_for_alias(self, alias: str) -> dict:
+        """Parse ~/.ssh/config to extract IdentityFile and HostName for an alias."""
+        ssh_config_path = Path.home() / ".ssh" / "config"
+        result = {}
+        
+        if not ssh_config_path.exists():
+            return result
+            
+        try:
+            with open(ssh_config_path, "r") as f:
+                current_host = None
+                for line in f:
+                    line = line.strip()
+                    if line.lower().startswith("host "):
+                        current_host = line.split()[1]
+                    elif current_host == alias:
+                        if line.lower().startswith("identityfile"):
+                            result["identity_file"] = line.split(None, 1)[1]
+                        elif line.lower().startswith("hostname"):
+                            result["hostname"] = line.split(None, 1)[1]
+                        elif line.lower().startswith("user"):
+                            result["user"] = line.split(None, 1)[1]
+        except Exception:
+            pass
+        return result
+
     def _resolve_ssh_params(self, env_name: str, overrides: dict) -> dict:
         """Determines SSH command parameters based on config file and overrides."""
         config = self._load_remotes_config().get(env_name, {})
@@ -105,12 +131,19 @@ if __name__ == "__main__":
             raise ValueError(f"No SSH host or alias found for environment '{env_name}'")
         if not remote_path:
             raise ValueError(f"No remote path specified for environment '{env_name}'")
+        
+        # If using an alias, try to extract IdentityFile from ~/.ssh/config
+        if ssh_alias and not identity_file:
+            ssh_config_data = self._parse_ssh_config_for_alias(ssh_alias)
+            if "identity_file" in ssh_config_data:
+                identity_file = ssh_config_data["identity_file"]
             
-        # Build base SSH command
-        ssh_base = ["ssh"]
+        # Build base SSH command with robustness options
+        ssh_base = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+        
         if identity_file:
-            # Resolve relative to project path if needed
-            id_path = Path(identity_file)
+            # Resolve ~ and relative paths
+            id_path = Path(identity_file).expanduser()
             if not id_path.is_absolute():
                 id_path = self.project_path / id_path
             ssh_base.extend(["-i", str(id_path)])
