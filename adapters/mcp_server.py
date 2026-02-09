@@ -59,7 +59,8 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.7.1] 💎 Hybrid search (Precision & Auto-Index). project_path is OPTIONAL.",
+                description="[v0.7.2] 💎 Hybrid search (Health & Hints). project_path is OPTIONAL.",
+
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -150,11 +151,37 @@ def create_mcp_server():
                     meta = metadatas[0] if metadatas else {}
                     if meta.get("status") == "no_results":
                         text_output.append(f"❌ Found 0 matches for: '{query}'")
-                        text_output.append(f"📊 Path: {project_path}")
-                        text_output.append(f"📊 Project Status: {meta.get('indexed_files')} indexed files")
+                        
+                        # [Phase B: Query Hints]
+                        if any(c in query for c in "().'\""):
+                            text_output.append(f"💡 Hint: Your query looks like code. If literal search failed, try a conceptual query (e.g., 'logic for launch display' instead of 'app.get(\"/api/launches\")')")
+                        
+                        # [Phase A: Index Health]
+                        try:
+                            status = indexer.get_index_status(project_path)
+                            if status["status"] == "ok":
+                                import datetime
+                                dt = datetime.datetime.fromtimestamp(status["last_update"]).strftime('%Y-%m-%d %H:%M:%S')
+                                text_output.append(f"\n📊 Index Health:")
+                                text_output.append(f"   • Files indexed: {status['indexed_files_count']}")
+                                text_output.append(f"   • Last updated: {dt}")
+                                if status.get("missing_from_index_count", 0) > 0:
+                                    text_output.append(f"   • ⚠️ {status['missing_from_index_count']} files on disk not in index. Run ace_index_project(force=True) to sync.")
+                        except: pass
+                        
                         return [types.TextContent(type="text", text="\n".join(text_output))]
 
                 text_output.append(f"Found {len(documents)} matching files for: {project_path}\n")
+                
+                # [Phase A: Proactive Health Info even with results]
+                try:
+                    status = indexer.get_index_status(project_path)
+                    if status["status"] == "ok":
+                        text_output.append(f"📊 Index Stats: {status['indexed_files_count']} files | Last updated: {datetime.datetime.fromtimestamp(status['last_update']).strftime('%H:%M')}")
+                        if status.get("missing_from_index_count", 0) > 0:
+                            text_output.append(f"   ⚠️ Warning: {status['missing_from_index_count']} stale files. Consider re-indexing.\n")
+                except: pass
+
                 
                 for doc, meta in zip(documents, metadatas):
                     path = meta.get('path', 'unknown')
