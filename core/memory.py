@@ -9,6 +9,12 @@ class MemoryManager:
         "task": "active_task.md", 
         "lessons": "lessons_learned.md"
     }
+
+    TEMPLATES = {
+        "context": "# Project Context\n\n<!-- Sin contenido aún. Describe el Stack, Misión y Arquitectura aquí. -->",
+        "task": "# Active Task\n\n<!-- Sin tarea activa registrada. -->",
+        "lessons": "# Lessons Learned\n\n<!-- Sin lecciones registradas. -->"
+    }
     
     def __init__(self, project_path: str):
         self.project_path = Path(project_path)
@@ -20,22 +26,41 @@ class MemoryManager:
         for key, filename in self.MEMORY_FILES.items():
             filepath = self.memory_dir / filename
             if not filepath.exists():
-                filepath.write_text(f"# {key.title()}\n\n<!-- Sin contenido aún -->", encoding="utf-8")
+                filepath.write_text(self.TEMPLATES[key], encoding="utf-8")
     
     def read(self, memory_type: str = "all") -> str:
         """Lee uno o todos los archivos de memoria."""
         self.ensure_structure()
+        
         if memory_type == "all":
             content = []
+            uninitialized = []
+            
             # Order them logically
             keys = ["context", "task", "lessons"]
             for key in keys:
                 filename = self.MEMORY_FILES[key]
                 filepath = self.memory_dir / filename
+                
                 if filepath.exists():
-                    content.append(f"## {key.upper()}\n{filepath.read_text(encoding='utf-8')}")
-            return "\n\n---\n\n".join(content)
+                    text = filepath.read_text(encoding='utf-8').strip()
+                    # Check if it's just the template
+                    if text == self.TEMPLATES[key].strip():
+                        uninitialized.append(key)
+                    
+                    content.append(f"## {key.upper()}\n{text}")
+            
+            result = "\n\n---\n\n".join(content)
+            
+            # Smart Detection: If Context is empty, prompt the agent
+            if "context" in uninitialized:
+                result += "\n\n🚨 [SYSTEM NOTICE] MEMORY DETECTED UNINITIALIZED CONTEXT"
+                result += "\nThis looks like an existing project with empty memory."
+                result += "\n👉 ACTION REQUIRED: Analyze file structure, `README.md` or config files and call `ace_update_memory('context', ...)`."
+                
+            return result
         else:
+            # ... (single file logic could also check, but 'all' is the main boot entry)
             filename = self.MEMORY_FILES.get(memory_type)
             if not filename:
                 return f"[ERROR] Tipo '{memory_type}' no soportado. Usa: {list(self.MEMORY_FILES.keys())}"
