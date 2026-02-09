@@ -77,7 +77,7 @@ def create_mcp_server():
             ),
             types.Tool(
                 name="ace_sync_remote_index",
-                description="[v0.8.1] 🌐 Phase 1: Count remote files (Dry-Run). Requires confirmation to proceed.",
+                description="[v0.9.0] 🌐 Phase 1: Generate command to count remote files (Delegate Mode).",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -95,7 +95,7 @@ def create_mcp_server():
             ),
             types.Tool(
                 name="ace_sync_remote_execute",
-                description="[v0.8.2] 🚀 Phase 2: Execute remote indexing after user confirmation.",
+                description="[v0.9.0] 🚀 Phase 2: Generate command for full remote sync (Delegate Mode).",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -107,6 +107,18 @@ def create_mcp_server():
                         "remote_path": {"type": "string"},
                         "file_extensions": {"type": "string"},
                         "exclude_dirs": {"type": "string"}
+                    },
+                    "required": ["env_name"]
+                }
+            ),
+            types.Tool(
+                name="ace_ingest_remote_data",
+                description="[v0.9.0] ✅ Phase 3: Ingest results from local cache and index them.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string"},
+                        "env_name": {"type": "string", "description": "Env name"}
                     },
                     "required": ["env_name"]
                 }
@@ -303,7 +315,7 @@ def create_mcp_server():
                 env_name = arguments.get("env_name")
                 
                 remote_indexer = RemoteIndexer(project_path)
-                result = remote_indexer.count_remote_files(
+                result = remote_indexer.get_count_command(
                     env_name=env_name,
                     ssh_alias=arguments.get("ssh_alias"),
                     ssh_host=arguments.get("ssh_host"),
@@ -313,14 +325,20 @@ def create_mcp_server():
                     exclude_dirs=arguments.get("exclude_dirs")
                 )
                 
-                return [types.TextContent(type="text", text=result["message"])]
+                msg = (
+                    f"🌐 Phase 1: Count Remote Files (Delegate Mode)\n"
+                    f"Ejecuta este comando en tu terminal para contar los archivos:\n\n"
+                    f"```bash\n{result['command']}\n```\n\n"
+                    f"Si el número es correcto, procede con `ace_sync_remote_execute` para generar el comando de sincronización completa."
+                )
+                return [types.TextContent(type="text", text=msg)]
 
             elif name == "ace_sync_remote_execute":
                 project_path = resolve_project_path(arguments)
                 env_name = arguments.get("env_name")
                 
                 remote_indexer = RemoteIndexer(project_path)
-                data = remote_indexer.sync_remote(
+                result = remote_indexer.get_sync_command(
                     env_name=env_name,
                     ssh_alias=arguments.get("ssh_alias"),
                     ssh_host=arguments.get("ssh_host"),
@@ -330,10 +348,25 @@ def create_mcp_server():
                     exclude_dirs=arguments.get("exclude_dirs")
                 )
                 
-                # Ingest into local index
+                msg = (
+                    f"🚀 Phase 2: Full Remote Sync (Delegate Mode)\n"
+                    f"Ejecuta este comando en tu terminal para indexar los archivos remotos:\n\n"
+                    f"```bash\n{result['command']} > \"{result['output_path']}\"\n```\n\n"
+                    f"Una vez completado, llama a `ace_ingest_remote_data` para cargar los resultados localmente."
+                )
+                return [types.TextContent(type="text", text=msg)]
+
+            elif name == "ace_ingest_remote_data":
+                project_path = resolve_project_path(arguments)
+                env_name = arguments.get("env_name")
+                
+                remote_indexer = RemoteIndexer(project_path)
+                data = remote_indexer.ingest_cache(env_name)
+                
+                # Ingest into local vector store
                 ingest_stats = indexer.index_remote_data(project_path, data)
                 
-                return [types.TextContent(type="text", text=f"🌐 Remote Sync Completed for '{env_name}'.\nFiles indexed: {ingest_stats['indexed']}\nAll remote snippets are now searchable locally.")]
+                return [types.TextContent(type="text", text=f"✅ Remote Data Ingested for '{env_name}'.\nFiles indexed: {ingest_stats['indexed']}\nAll remote snippets are now searchable locally.")]
 
 
 
