@@ -12,94 +12,110 @@ from core.indexer import Indexer
 def create_mcp_server():
     app = Server("Antigravity Context Engine (ACE)")
     indexer = Indexer()
+    
+    # State to persist last used project path
+    state = {
+        "last_project_path": None
+    }
+
+    def resolve_project_path(arguments: dict) -> str:
+        """Infiere el project_path si no se provee."""
+        path = arguments.get("project_path")
+        if path:
+            state["last_project_path"] = path
+            return path
+        
+        if state["last_project_path"]:
+            return state["last_project_path"]
+        
+        # Fallback to current working directory
+        cwd = os.getcwd()
+        sys.stderr.write(f"[WARN] No project_path provided. Falling back to CWD: {cwd}\n")
+        state["last_project_path"] = cwd
+        return cwd
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.6.3] 💎 RECOMMENDED. Hybrid search with Declaration Boost. Detects declarations in 10+ languages (Back/Front/Ops/SQL).",
+                description="[v0.7.0] 💎 Hybrid search. project_path is OPTIONAL (infers from last call or CWD).",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "The search query (e.g. 'initialization of lastAgentStats')"},
-                        "project_path": {"type": "string", "description": "Absolute path to the project root"},
-                        "file_pattern": {"type": "string", "description": "Optional glob pattern (e.g. '*.js', 'test_*.py')"}
+                        "query": {"type": "string", "description": "The search query"},
+                        "project_path": {"type": "string", "description": "Absolute path (optional)"},
+                        "file_pattern": {"type": "string", "description": "Optional glob pattern"}
                     },
-                    "required": ["query", "project_path"]
+                    "required": ["query"]
                 }
             ),
             types.Tool(
                 name="ace_index_status",
-                description="Check if project index is healthy and detect missing files.",
+                description="Check index health. project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "project_path": {"type": "string"}
-                    },
-                    "required": ["project_path"]
+                    }
                 }
             ),
             types.Tool(
                 name="ace_list_indexed",
-                description="List all files currently in the index (for debugging).",
+                description="List indexed files. project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "project_path": {"type": "string"},
-                        "pattern": {"type": "string", "description": "Optional pattern filter"}
-                    },
-                    "required": ["project_path"]
+                        "pattern": {"type": "string"}
+                    }
                 }
             ),
             types.Tool(
                 name="ace_index_project",
-                description="Trigger a manual re-index. Use force=True to fix missing files.",
+                description="Manual re-index. project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "project_path": {"type": "string"},
                         "force": {"type": "boolean"}
-                    },
-                    "required": ["project_path"]
+                    }
                 }
             ),
             types.Tool(
                 name="ace_boot_memory",
-                description="[START OF SESSION] Read ALL project memory files. Call this when starting a new conversation to restore context.",
+                description="[START OF SESSION] Load all memory. project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "project_path": {"type": "string", "description": "Absolute path to the project root"}
-                    },
-                    "required": ["project_path"]
+                        "project_path": {"type": "string"}
+                    }
                 }
             ),
             types.Tool(
                 name="ace_update_memory",
-                description="Update a specific memory file. Use at the END of a task to save progress.",
+                description="Update memory. project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "project_path": {"type": "string", "description": "Absolute path to the project root"},
-                        "memory_type": {"type": "string", "enum": ["context", "task", "lessons"], "description": "Which memory to update"},
-                        "content": {"type": "string", "description": "Content to write"},
-                        "append": {"type": "boolean", "description": "Append instead of overwrite", "default": False}
+                        "project_path": {"type": "string"},
+                        "memory_type": {"type": "string", "enum": ["context", "task", "lessons"]},
+                        "content": {"type": "string"},
+                        "append": {"type": "boolean", "default": False}
                     },
-                    "required": ["project_path", "memory_type", "content"]
+                    "required": ["memory_type", "content"]
                 }
             )
         ]
 
     @app.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-        import sys
         sys.stderr.write(f"[DEBUG] call_tool invoked: {name} with {arguments}\n")
         
         try:
             if name == "ace_search_code":
                 query = arguments.get("query")
-                project_path = arguments.get("project_path")
+                project_path = resolve_project_path(arguments)
                 file_pattern = arguments.get("file_pattern")
                 
                 # Perform Search Logic directly
@@ -109,102 +125,65 @@ def create_mcp_server():
                 documents = results.get("documents", [[]])[0]
                 metadatas = results.get("metadatas", [[]])[0]
                 
-                # [v0.2.1] Handle 0 Results with Stats
+                # Handle 0 Results with Stats
                 if not documents:
                     meta = metadatas[0] if metadatas else {}
                     if meta.get("status") == "no_results":
                         text_output.append(f"❌ Found 0 matches for: '{query}'")
-                        text_output.append(f"📊 Project Status: {meta.get('indexed_files')} indexed files (Pattern: '{meta.get('pattern')}')")
-                        
-                        missing = meta.get("missing_files", [])
-                        if missing:
-                            text_output.append("\n⚠️ POTENTIAL ISSUES DETECTED:")
-                            text_output.append(f"Found {len(missing)} files on disk that are NOT in the index yet:")
-                            for m in missing: text_output.append(f"  - {m}")
-                            text_output.append("\n💡 RECOMMENDATION: Run `ace_index_project(force=True)` to update the index.")
-                        else:
-                            text_output.append("\n💡 TIP: Try a more general search or check your `file_pattern`.")
-                        
+                        text_output.append(f"📊 Path: {project_path}")
+                        text_output.append(f"📊 Project Status: {meta.get('indexed_files')} indexed files")
                         return [types.TextContent(type="text", text="\n".join(text_output))]
 
                 text_output.append(f"Found {len(documents)} matching files for: {project_path}\n")
                 
-                MAX_LEN = 1500
-                BOOSTED_MAX_LEN = 3000
-
                 for doc, meta in zip(documents, metadatas):
                     path = meta.get('path', 'unknown')
                     is_boosted = meta.get('boosted', False)
-                    limit = BOOSTED_MAX_LEN if is_boosted else MAX_LEN
-                    
-                    if len(doc) > limit:
-                        head = doc[:int(limit * 0.7)]
-                        tail = doc[-int(limit * 0.2):]
-                        display_doc = f"{head}\n\n... [TRUNCATED {len(doc) - limit} chars for clarity] ...\n\n{tail}"
-                    else:
-                        display_doc = doc
-
                     text_output.append(f"--- File: {path} {' [PRIORITY MATCH]' if is_boosted else ''} ---")
-                    text_output.append(display_doc)
+                    text_output.append(doc[:3000] if is_boosted else doc[:1500])
                     text_output.append("\n" + "-"*20 + "\n")
                 
                 return [types.TextContent(type="text", text="\n".join(text_output))]
 
             elif name == "ace_index_status":
-                path = arguments["project_path"]
-                status = indexer.get_index_status(path)
+                project_path = resolve_project_path(arguments)
+                status = indexer.get_index_status(project_path)
                 
                 if status["status"] == "error":
                     return [types.TextContent(type="text", text=status["message"])]
                 
                 import datetime
                 dt = datetime.datetime.fromtimestamp(status["last_update"]).strftime('%Y-%m-%d %H:%M:%S')
-                
                 output = [
-                    f"📊 Index Status: {path}",
+                    f"📊 Index Status: {project_path}",
                     f"• Indexed files: {status['indexed_files_count']}",
-                    f"• Last updated: {dt}",
-                    f"• New/Changed files on disk (NOT in index): {status['missing_from_index_count']}"
+                    f"• Last updated: {dt}"
                 ]
-                
-                if status["missing_from_index_count"] > 0:
-                    output.append("\n⚠️ Missing files sample:")
-                    for f in status["missing_files_sample"]:
-                        output.append(f"  - {f}")
-                    output.append("\n💡 Recommendation: Run `ace_index_project(force=True)`")
-                
                 return [types.TextContent(type="text", text="\n".join(output))]
 
             elif name == "ace_list_indexed":
-                path = arguments["project_path"]
+                project_path = resolve_project_path(arguments)
                 pattern = arguments.get("pattern")
-                files = indexer.list_indexed_files(path, pattern)
-                
-                msg = f"Indexed files ({len(files)}):"
-                if len(files) > 50:
-                    msg += f"\n(Showing first 50)\n"
-                
+                files = indexer.list_indexed_files(project_path, pattern)
                 file_list = "\n".join(files[:50])
-                return [types.TextContent(type="text", text=f"{msg}\n{file_list}")]
+                return [types.TextContent(type="text", text=f"Indexed files ({len(files)}):\n{file_list}")]
 
             elif name == "ace_index_project":
-                project_path = arguments.get("project_path")
+                project_path = resolve_project_path(arguments)
                 force = arguments.get("force", False)
                 stats = indexer.index_project(project_path, force=force)
-                
-                msg = f"Project Indexed Successfully.\nStats: {stats}"
-                return [types.TextContent(type="text", text=msg)]
+                return [types.TextContent(type="text", text=f"Project Indexed Successfully.\nStats: {stats}")]
 
             elif name == "ace_boot_memory":
                 from core.memory import MemoryManager
-                project_path = arguments.get("project_path")
+                project_path = resolve_project_path(arguments)
                 manager = MemoryManager(project_path)
                 content = manager.read("all")
                 return [types.TextContent(type="text", text=content)]
 
             elif name == "ace_update_memory":
                 from core.memory import MemoryManager
-                project_path = arguments.get("project_path")
+                project_path = resolve_project_path(arguments)
                 memory_type = arguments.get("memory_type")
                 content = arguments.get("content")
                 append = arguments.get("append", False)
@@ -220,6 +199,3 @@ def create_mcp_server():
             return [types.TextContent(type="text", text=f"Error executing tool {name}: {str(e)}")]
     
     return app
-
-
-
