@@ -7,6 +7,8 @@ import mcp.types as types
 
 # Direct Import of Core Logic (No HTTP)
 from core.indexer import Indexer
+from core.remote_indexer import RemoteIndexer
+
 
 # Expose the server instance creation
 def create_mcp_server():
@@ -59,7 +61,7 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.7.2] 💎 Hybrid search (Health & Hints). project_path is OPTIONAL.",
+                description="[v0.8.0] 💎 Hybrid search (Health, Hints & Remote). project_path is OPTIONAL.",
 
                 inputSchema={
                     "type": "object",
@@ -72,7 +74,25 @@ def create_mcp_server():
                 }
             ),
             types.Tool(
+                name="ace_sync_remote_index",
+                description="[v0.8.0] 🌐 Index remote files via SSH without downloading.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string"},
+                        "env_name": {"type": "string", "description": "Env name (loads from .ace/remotes.json if exists)"},
+                        "ssh_alias": {"type": "string", "description": "SSH alias from ~/.ssh/config"},
+                        "ssh_host": {"type": "string", "description": "Direct SSH host (user@ip)"},
+                        "identity_file": {"type": "string", "description": "Path to SSH key"},
+                        "remote_path": {"type": "string", "description": "Path on remote server"},
+                        "file_extensions": {"type": "string", "description": "Comma-separated extensions"}
+                    },
+                    "required": ["env_name"]
+                }
+            ),
+            types.Tool(
                 name="ace_index_status",
+
                 description="Check index health. project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
@@ -187,16 +207,26 @@ def create_mcp_server():
                     path = meta.get('path', 'unknown')
                     is_boosted = meta.get('boosted', False)
                     is_literal = meta.get('literal_match', False)
+                    is_remote = meta.get('remote', False)
+                    env = meta.get('env')
                     
-                    # Etiqueta de precisión
+                    # Labels and Badges
                     match_type = " [LITERAL MATCH] ✅" if is_literal else " [SEMANTIC ONLY] 🧠"
+                    remote_badge = f" [REMOTE: {env}] 🌐" if is_remote else ""
                     priority = " [PRIORITY]" if is_boosted else ""
                     
-                    text_output.append(f"--- File: {path}{match_type}{priority} ---")
+                    text_output.append(f"--- File: {path}{remote_badge}{match_type}{priority} ---")
+                    
+                    # For remote files, add hint on how to view full content
+                    if is_remote:
+                        # Try to guess SSH alias from remotes.json or use a generic hint
+                        text_output.append(f"💡 Remote snippet. Use SSH to view full content.")
+                    
                     text_output.append(doc[:3000] if is_boosted else doc[:1500])
                     text_output.append("\n" + "-"*20 + "\n")
                 
                 return [types.TextContent(type="text", text="\n".join(text_output))]
+
 
             elif name == "ace_index_status":
                 project_path = resolve_project_path(arguments)
@@ -235,6 +265,7 @@ def create_mcp_server():
                 return [types.TextContent(type="text", text=content)]
 
             elif name == "ace_update_memory":
+                # ... [omitted identical logic] ...
                 from core.memory import MemoryManager
                 project_path = resolve_project_path(arguments)
                 memory_type = arguments.get("memory_type")
@@ -243,6 +274,26 @@ def create_mcp_server():
                 manager = MemoryManager(project_path)
                 result = manager.write(memory_type, content, append)
                 return [types.TextContent(type="text", text=result)]
+                
+            elif name == "ace_sync_remote_index":
+                project_path = resolve_project_path(arguments)
+                env_name = arguments.get("env_name")
+                
+                remote_indexer = RemoteIndexer(project_path)
+                data = remote_indexer.sync_remote(
+                    env_name=env_name,
+                    ssh_alias=arguments.get("ssh_alias"),
+                    ssh_host=arguments.get("ssh_host"),
+                    identity_file=arguments.get("identity_file"),
+                    remote_path=arguments.get("remote_path"),
+                    file_extensions=arguments.get("file_extensions")
+                )
+                
+                # Ingest into local index
+                ingest_stats = indexer.index_remote_data(project_path, data)
+                
+                return [types.TextContent(type="text", text=f"🌐 Remote Sync Completed for '{env_name}'.\nFiles indexed: {ingest_stats['indexed']}\nAll remote snippets are now searchable locally.")]
+
                 
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
             

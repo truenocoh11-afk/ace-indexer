@@ -238,6 +238,50 @@ class Indexer:
         self._save_hashes(hashes_path, new_hashes)
         return {"indexed": len(files_to_index), "deleted": len(ids_to_delete)}
 
+    def index_remote_data(self, project_path: str, remote_data: dict):
+        """Incorporate remote file snippets into the local vector index."""
+        sys.stderr.write(f"[Indexer] Indexing remote data for env: {remote_data.get('env_name')}\n")
+        
+        indices_dir, _ = self._get_paths(project_path)
+        client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+        collection = client.get_or_create_collection(name="project_context")
+        
+        env_name = remote_data.get("env_name", "remote")
+        files = remote_data.get("files", [])
+        
+        documents = []
+        metadatas = []
+        ids = []
+        
+        for f in files:
+            path = f["path"]
+            snippet = f["snippet"]
+            
+            # Use a unique ID for remote files to avoid collision with local ones
+            remote_id = f"remote://{env_name}/{path}"
+            
+            documents.append(snippet)
+            metadatas.append({
+                "path": path,
+                "env": env_name,
+                "remote": True,
+                "type": "code",
+                "hash": f.get("hash", "")
+            })
+            ids.append(remote_id)
+            
+        # Batch add
+        batch_size = 100
+        for i in range(0, len(documents), batch_size):
+            collection.upsert(
+                documents=documents[i:i+batch_size],
+                metadatas=metadatas[i:i+batch_size],
+                ids=ids[i:i+batch_size]
+            )
+            
+        return {"indexed": len(documents), "env": env_name}
+
+
     def _is_low_quality(self, content: str, path: str) -> bool:
         """Fallback Heuristic for search time filtering."""
         if not content: return True
@@ -583,28 +627,41 @@ class Indexer:
     def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None) -> list:
         """Internal fast grep for literal string matches in indexed files."""
         matches = []
-        _, hashes_path = self._get_paths(project_path)
+        indices_dir, hashes_path = self._get_paths(project_path)
         known_files = self._load_hashes(hashes_path)
         
         query_text_lower = query_text.lower()
         
+        # 1. Local Files
         for filepath in known_files:
             if not self._matches_file_pattern(filepath, project_path, file_pattern):
                 continue
             
             try:
-                # Basic check for file existence (might have been moved/deleted but still in hashes)
-                if not os.path.exists(filepath):
-                    continue
-
+                if not os.path.exists(filepath): continue
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                     if query_text_lower in content.lower():
-                        matches.append({"id": filepath})
-            except Exception:
-                continue
+                        matches.append({"id": filepath, "remote": False})
+            except Exception: continue
+            
+        # 2. Remote Files (Search in cached snippets)
+        try:
+            client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+            collection = client.get_collection(name="project_context")
+            # We query for all remote entries (this is a bit heavy but Chroma is fast)
+            remote_results = collection.get(where={"remote": True}, include=["documents", "metadatas"])
+            
+            for doc, meta, rid in zip(remote_results["documents"], remote_results["metadatas"], remote_results["ids"]):
+                path = meta["path"]
+                if file_pattern and not self._matches_file_pattern(path, project_path, file_pattern):
+                    continue
+                if query_text_lower in doc.lower():
+                    matches.append({"id": rid, "remote": True, "meta": meta, "snippet": doc})
+        except: pass
         
         return matches
+
 
     def _is_index_too_old(self, project_path: str) -> bool:
         """Determina si el índice necesita una actualización automática."""
@@ -646,21 +703,41 @@ class Indexer:
         known_hashes = self._load_hashes(hashes_path)
         filename_matches = []
         query_lower = query_text.lower()
-        # ... [omitted identical logic] ...
-        for path in known_hashes:
+        
+        # Local paths
+        all_paths = [(p, False, None) for p in known_hashes.keys()]
+        
+        # Remote paths from vector store
+        try:
+            client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+            collection = client.get_collection(name="project_context")
+            remotes = collection.get(where={"remote": True}, include=["metadatas"])
+            for meta, rid in zip(remotes["metadatas"], remotes["ids"]):
+                all_paths.append((meta["path"], True, rid))
+        except: pass
+
+        for path, is_remote, rid in all_paths:
             filename = os.path.basename(path)
+            # Use rid for remote files internally
+            internal_id = rid if is_remote else path
+            
             if not self._matches_file_pattern(path, project_path, file_pattern):
                 continue
+            
             filename_lower = filename.lower()
-            rel_path = os.path.relpath(path, project_path).lower()
+            # For remote files, we can't always do rel_path easily if it's outside project
+            rel_path = path.lower() if is_remote else os.path.relpath(path, project_path).lower()
+            
             match_score = 0
             if query_lower == filename_lower: match_score = 10
             elif query_lower in filename_lower: match_score = 5
             elif query_lower in rel_path: match_score = 2
+            
             if match_score > 0:
-                filename_matches.append({"id": path, "score": match_score})
+                filename_matches.append({"id": internal_id, "score": match_score, "remote": is_remote})
         
         filename_matches = sorted(filename_matches, key=lambda x: x["score"], reverse=True)
+
 
         # 2. Hybrid Search: Literal (Grep) vs Semantic (Vector)
         vector_results = []
@@ -717,30 +794,52 @@ class Indexer:
         for doc_id in final_ids:
             if len(res_ids) >= n_results: break
             try:
-                is_boosted = any(os.path.normpath(f["id"]) == os.path.normpath(doc_id) for f in filename_matches)
-                with open(doc_id, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                if not is_boosted and self._is_low_quality(content, doc_id):
-                    continue
+                # Find if it's remote in our tracking lists
+                filename_item = next((f for f in filename_matches if f["id"] == doc_id), None)
+                is_remote = filename_item["remote"] if filename_item else doc_id.startswith("remote://")
                 
+                content = ""
+                is_boosted = any(f["id"] == doc_id for f in filename_matches)
+                
+                if not is_remote:
+                    # LOCAL FILE
+                    with open(doc_id, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    if not is_boosted and self._is_low_quality(content, doc_id):
+                        continue
+                    display_path = doc_id
+                    env_name = None
+                else:
+                    # REMOTE FILE (Load from Chroma)
+                    client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+                    collection = client.get_collection(name="project_context")
+                    remote_entry = collection.get(ids=[doc_id], include=["documents", "metadatas"])
+                    if not remote_entry["documents"]: continue
+                    content = remote_entry["documents"][0]
+                    display_path = remote_entry["metadatas"][0]["path"]
+                    env_name = remote_entry["metadatas"][0]["env"]
+
                 # [Fase B: Literal Match Detection]
                 is_literal = False
                 if query_text.lower() in content.lower():
                     is_literal = True
                 else:
-                    # Check if at least one identifier is literally there
                     is_literal = any(ident.lower() in content.lower() for ident in identifiers)
 
                 res_ids.append(doc_id)
                 res_metas.append({
-                    "path": doc_id,
+                    "path": display_path,
                     "boosted": is_boosted,
                     "literal_match": is_literal,
+                    "remote": is_remote,
+                    "env": env_name,
                     "rrf_score": rrf_scores[doc_id]
                 })
                 res_docs.append(content)
-            except Exception:
+            except Exception as e:
+                sys.stderr.write(f"Error processing result {doc_id}: {e}\n")
                 continue
+
 
         if not res_ids:
             # ... [omitted helpful suggestion logic] ...
