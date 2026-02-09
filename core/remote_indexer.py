@@ -149,7 +149,7 @@ if __name__ == "__main__":
         
         try:
             sys.stderr.write(f"🌐 Connecting for dry-run: {params['target']}...\n")
-            process = subprocess.run(ssh_base + [find_cmd], capture_output=True, text=True, check=True)
+            process = subprocess.run(ssh_base + [find_cmd], capture_output=True, text=True, check=True, timeout=60)
             count = int(process.stdout.strip())
             return {
                 "status": "pending",
@@ -157,6 +157,8 @@ if __name__ == "__main__":
                 "file_count": count,
                 "message": f"📊 Found {count} files to index in {env_name}. Proceed with ace_sync_remote_execute?"
             }
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("SSH command timed out after 60 seconds. Check connection.")
         except Exception as e:
             raise RuntimeError(f"Failed to count remote files: {str(e)}")
 
