@@ -57,8 +57,23 @@ class MemoryManager:
                 result += "\n\n🚨 [SYSTEM NOTICE] MEMORY DETECTED UNINITIALIZED CONTEXT"
                 result += "\nThis looks like an existing project with empty memory."
                 result += "\n👉 ACTION REQUIRED: Analyze file structure, `README.md` or config files and call `ace_update_memory('context', ...)`."
+            else:
+                # Health Check: Even if context exists, verify it has infrastructure info
+                context_text = ""
+                for item in content:
+                    if item.startswith("## CONTEXT"):
+                        context_text = item.lower()
+                        break
+                
+                infra_keywords = ["ssh", "port", "vps", "server", "deploy", "pm2", "docker"]
+                has_infra = any(kw in context_text for kw in infra_keywords)
+                
+                if not has_infra and len(context_text) > 50:  # Only warn if context has some content
+                    result += "\n\n⚠️ [HEALTH CHECK] Context may be missing infrastructure info."
+                    result += "\n   If this project uses VPS/SSH, ensure `context` contains: Access, Ports, Paths, Commands."
                 
             return result
+
         else:
             # ... (single file logic could also check, but 'all' is the main boot entry)
             filename = self.MEMORY_FILES.get(memory_type)
