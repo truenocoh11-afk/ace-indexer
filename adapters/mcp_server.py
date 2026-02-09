@@ -77,7 +77,7 @@ def create_mcp_server():
             ),
             types.Tool(
                 name="ace_sync_remote_index",
-                description="[v0.9.0] 🌐 Phase 1: Generate command to count remote files (Delegate Mode).",
+                description="[v0.9.1] 🌐 Phase 1: Generate command to count remote files (Delegate Mode).",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -95,7 +95,7 @@ def create_mcp_server():
             ),
             types.Tool(
                 name="ace_sync_remote_execute",
-                description="[v0.9.0] 🚀 Phase 2: Generate command for full remote sync (Delegate Mode).",
+                description="[v0.9.1] 🚀 Phase 2: Generate commands for full remote sync (Delegate Mode).",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -349,10 +349,13 @@ def create_mcp_server():
                 )
                 
                 msg = (
-                    f"🚀 Phase 2: Full Remote Sync (Delegate Mode)\n"
-                    f"Ejecuta este comando en tu terminal para indexar los archivos remotos:\n\n"
-                    f"```bash\n{result['command']} > \"{result['output_path']}\"\n```\n\n"
-                    f"Una vez completado, llama a `ace_ingest_remote_data` para cargar los resultados localmente."
+                    f"🚀 Phase 2: Full Remote Sync (Delegate Mode v0.9.1)\n"
+                    f"Sigue estos pasos para sincronizar el código remoto:\n\n"
+                    f"1. **Subir Script**: Copia el script de indexación al servidor:\n"
+                    f"```bash\n{result['scp_command']}\n```\n\n"
+                    f"2. **Ejecutar e Indexar**: Ejecuta el script y guarda el resultado localmente:\n"
+                    f"```bash\n{result['exec_command']} > \"{result['output_path']}\"\n```\n\n"
+                    f"Una vez completado, llama a `ace_ingest_remote_data(env_name=\"{env_name}\")` para cargar los resultados."
                 )
                 return [types.TextContent(type="text", text=msg)]
 

@@ -116,6 +116,11 @@ if __name__ == "__main__":
             pass
         return result
 
+    def _ensure_ace_dirs(self):
+        """Ensures that .ace/remote_cache and .ace/scripts directories exist."""
+        (self.project_path / ".ace" / "remote_cache").mkdir(parents=True, exist_ok=True)
+        (self.project_path / ".ace" / "scripts").mkdir(parents=True, exist_ok=True)
+
     def _resolve_ssh_params(self, env_name: str, overrides: dict) -> dict:
         """Determines SSH command parameters based on config file and overrides."""
         config = self._load_remotes_config().get(env_name, {})
@@ -141,15 +146,16 @@ if __name__ == "__main__":
         # Build base SSH command with robustness options
         ssh_base = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
         
-        if identity_file:
-            # Resolve ~ and relative paths
+        # FIX: Only append -i if we explicitly need it and it's not handled by the alias.
+        # If it's an alias, SSH will find the key in config. 
+        # Only use identity_file override if provided.
+        if identity_file and not ssh_alias:
             id_path = Path(identity_file).expanduser()
             if not id_path.is_absolute():
                 id_path = self.project_path / id_path
             ssh_base.extend(["-i", str(id_path)])
             
         target = ssh_alias if ssh_alias else ssh_host
-        ssh_base.append(target)
         
         return {
             "ssh_base": ssh_base,
@@ -160,12 +166,19 @@ if __name__ == "__main__":
 
     def get_count_command(self, env_name: str, **overrides) -> dict:
         """Generates the SSH command to count remote files (Phase 1)."""
+        self._ensure_ace_dirs()
         params = self._resolve_ssh_params(env_name, overrides)
         remote_path = params["remote_path"]
         
         # Build find command for extensions
         exts = overrides.get("file_extensions") or ".py,.js,.ts,.html,.css,.json,.md"
-        ext_list = [e.strip() for e in exts.split(',') if e.strip()]
+        # Normalize extensions to have leading dot
+        ext_list = []
+        for e in exts.split(','):
+            e = e.strip()
+            if not e: continue
+            if not e.startswith('.'): e = '.' + e
+            ext_list.append(e)
         
         skip_pattern = "-not -path '*/.*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*'"
         if params["exclude_dirs"]:
@@ -177,7 +190,7 @@ if __name__ == "__main__":
             find_parts.append(f"-name '*{ext}'")
         
         find_cmd = f"find {remote_path} -type f \\( {' -o '.join(find_parts)} \\) {skip_pattern} | wc -l"
-        ssh_cmd = " ".join(params["ssh_base"]) + f" \"{find_cmd}\""
+        ssh_cmd = " ".join(params["ssh_base"]) + f" {params['target']} \"{find_cmd}\""
         
         return {
             "command": ssh_cmd,
@@ -187,35 +200,41 @@ if __name__ == "__main__":
 
     def get_sync_command(self, env_name: str, **overrides) -> dict:
         """Generates the SSH command to perform full indexing (Phase 2)."""
+        self._ensure_ace_dirs()
         params = self._resolve_ssh_params(env_name, overrides)
         remote_path = params["remote_path"]
         exclude_dirs = params["exclude_dirs"]
-        exts = overrides.get("file_extensions") or ".py,.js,.ts,.html,.css,.json,.md"
+        
+        # Normalize extensions
+        exts_raw = overrides.get("file_extensions") or ".py,.js,.ts,.html,.css,.json,.md"
+        ext_list = []
+        for e in exts_raw.split(','):
+            e = e.strip()
+            if not e: continue
+            if not e.startswith('.'): e = '.' + e
+            ext_list.append(e)
+        exts = ','.join(ext_list)
 
-        # The script is piped to python3 -
-        # We need to escape the script content for a shell command
-        script_escaped = self.REMOTE_SCRIPT.replace("'", "'\\''")
+        # Save the script to a local file instead of using heredoc (PowerShell compatibility)
+        script_local_path = self.project_path / ".ace" / "scripts" / "remote_indexer.py"
+        with open(script_local_path, "w", encoding="utf-8") as f:
+            f.write(self.REMOTE_SCRIPT)
+            
+        target = params["target"]
+        ssh_opts = " ".join(params["ssh_base"][1:]) # Skip 'ssh' literal
         
-        # Build command: ssh alias 'python3 - arg1 arg2 ...' << 'EOF' ... EOF
-        # But a simpler way for agents is: echo 'script' | ssh alias 'python3 - args'
-        exec_cmd = f"python3 - '{remote_path}' '{exts}' '{exclude_dirs}'"
-        
-        # Prepare the full command string
-        # Using a heredoc is usually more robust for multiline scripts
-        full_ssh_cmd = (
-            " ".join(params["ssh_base"]) + 
-            f" \"{exec_cmd}\" << 'EOFSCRIPT'\n" +
-            f"{self.REMOTE_SCRIPT}\n" +
-            "EOFSCRIPT"
-        )
+        # Build multi-step instructions
+        scp_cmd = f"scp {ssh_opts} \".ace/scripts/remote_indexer.py\" {target}:/tmp/ace_remote_idx.py"
+        exec_cmd = f"ssh {ssh_opts} {target} \"python3 /tmp/ace_remote_idx.py '{remote_path}' '{exts}' '{exclude_dirs}'\""
         
         cache_file = self.project_path / ".ace" / "remote_cache" / f"{env_name}.json"
         
         return {
-            "command": full_ssh_cmd,
+            "scp_command": scp_cmd,
+            "exec_command": exec_cmd,
             "output_path": str(cache_file),
             "env_name": env_name,
-            "message": "Ejecuta este comando. Redirige la salida (stdout) a .ace/remote_cache/{env_name}.json"
+            "message": "Sigue estos pasos para indexar archivos remotos:"
         }
 
     def count_remote_files(self, env_name: str, **overrides) -> dict:
