@@ -606,9 +606,35 @@ class Indexer:
         
         return matches
 
+    def _is_index_too_old(self, project_path: str) -> bool:
+        """Determina si el índice necesita una actualización automática."""
+        indices_dir, hashes_path = self._get_paths(project_path)
+        
+        # Si no hay hashes, no hay índice
+        if not os.path.exists(hashes_path):
+            return True
+            
+        # Si el índice tiene más de 24 horas, re-chequear (opcional, pero ayuda)
+        last_update = os.path.getmtime(hashes_path)
+        import time
+        if time.time() - last_update > 86400: # 1 día
+            return True
+            
+        # [Crucial] Si el índice está vacío (0 archivos), intentar re-indexar
+        hashes = self._load_hashes(hashes_path)
+        if not hashes:
+            return True
+            
+        return False
+
     def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None):
         indices_dir, hashes_path = self._get_paths(project_path)
         
+        # [Fase A: Auto-Index]
+        if self._is_index_too_old(project_path):
+            sys.stderr.write(f"[Indexer] Index is stale or missing. Auto-indexing: {project_path}\n")
+            self.index_project(project_path)
+
         if not os.path.exists(indices_dir):
              return {"ids": [], "metadatas": [], "documents": []}
 
@@ -620,38 +646,26 @@ class Indexer:
         known_hashes = self._load_hashes(hashes_path)
         filename_matches = []
         query_lower = query_text.lower()
-        
+        # ... [omitted identical logic] ...
         for path in known_hashes:
             filename = os.path.basename(path)
-            
-            # [Optimization] If file_pattern is provided, skip non-matching files early
             if not self._matches_file_pattern(path, project_path, file_pattern):
                 continue
-
             filename_lower = filename.lower()
             rel_path = os.path.relpath(path, project_path).lower()
-            
-            # Weighted matching for Filename Rank
             match_score = 0
-            if query_lower == filename_lower: match_score = 10 # Exact filename
-            elif query_lower in filename_lower: match_score = 5 # Partial filename
-            elif query_lower in rel_path: match_score = 2 # Partial path
-            
+            if query_lower == filename_lower: match_score = 10
+            elif query_lower in filename_lower: match_score = 5
+            elif query_lower in rel_path: match_score = 2
             if match_score > 0:
                 filename_matches.append({"id": path, "score": match_score})
         
-        # Sort filename matches by match_score
         filename_matches = sorted(filename_matches, key=lambda x: x["score"], reverse=True)
 
         # 2. Hybrid Search: Literal (Grep) vs Semantic (Vector)
         vector_results = []
-        
         if query_type == 'literal':
-            # Literal first: Use internal grep to find exact occurrences
             literal_results = self._grep_search(project_path, query_text, file_pattern)
-            
-            # Use semantic as a companion search if literal results are thin
-            # or if we want to ensure we don't miss closely related concepts
             try:
                 client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
                 collection = client.get_collection(name="project_context")
@@ -663,20 +677,13 @@ class Indexer:
                     vector_results.append({"id": vid})
             except Exception:
                 pass
-            
-            # We treat literal_results with a higher weight in fusion
-            # By merging them into filename_matches conceptually (as high-confidence textual matches)
-            # OR we can pass them as a separate list to weighted_rrf.
-            # Let's add them to filename_matches with a high score if they aren't already there.
             for match in literal_results:
                 existing = next((f for f in filename_matches if f["id"] == match["id"]), None)
                 if existing:
-                    existing["score"] += 15 # Boost even higher
+                    existing["score"] += 15
                 else:
-                    filename_matches.append({"id": match["id"], "score": 8}) # High confidence text match
-        
+                    filename_matches.append({"id": match["id"], "score": 8})
         else:
-            # Semantic first: Conceptual query
             try:
                 client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
                 collection = client.get_collection(name="project_context")
@@ -688,71 +695,56 @@ class Indexer:
                     vector_results.append({"id": vid})
             except Exception:
                 pass
-            
-            # Check grep as a safety net even in conceptual (maybe name of function matches concept)
             literal_results = self._grep_search(project_path, query_text, file_pattern)
             for match in literal_results:
                 if not any(v["id"] == match["id"] for v in vector_results):
-                    # Wrap it into filename_matches for fusion
                     filename_matches.append({"id": match["id"], "score": 3})
 
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
-        
-        # [v0.5.0] Word-Level Identifier Boost (Always-On)
-        # Even if a query is conceptual, if it contains specific identifiers (camelCase, etc.),
-        # we want to find files that literally contain those words.
         identifiers = self._extract_identifiers(query_text)
         if identifiers:
-            sys.stderr.write(f"[Indexer] Boosting files containing identifiers: {identifiers}\n")
             final_ids, rrf_scores = self._word_boost(final_ids, rrf_scores, identifiers)
-
-        # [v0.6.0] Declaration Boost (Birth Certificate Detection)
-        # Extra boost for files that actually DECLARE the identifier, not just mention it
-        if identifiers:
             final_ids, rrf_scores = self._declaration_boost(final_ids, rrf_scores, identifiers)
-
-        # [v0.4.0] Semantic Re-Ranking (Post-Fusion)
-        # Give a boost to files that contain literal keywords from the query
         if query_type == 'conceptual':
             keywords = self._extract_keywords(query_text)
-            sys.stderr.write(f"[Indexer] Re-ranking with keywords: {keywords}\n")
             final_ids, rrf_scores = self._rerank_results(final_ids, rrf_scores, keywords)
 
         # 4. Filter & Build Final Response
         res_ids = []
         res_metas = []
         res_docs = []
-        
-        # Re-fetch content and metadata for the winners
         for doc_id in final_ids:
             if len(res_ids) >= n_results: break
-            
             try:
-                # Meta check (Robust normalization)
-                # We check if doc_id is in the list of filename_matches IDs
                 is_boosted = any(os.path.normpath(f["id"]) == os.path.normpath(doc_id) for f in filename_matches)
-                
                 with open(doc_id, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                
-                # Anti-Flooding Filter: Only apply to NON-BOOSTED files
-                # If it's a priority match, we show it even if it looks "low quality" (user knows best)
                 if not is_boosted and self._is_low_quality(content, doc_id):
                     continue
+                
+                # [Fase B: Literal Match Detection]
+                is_literal = False
+                if query_text.lower() in content.lower():
+                    is_literal = True
+                else:
+                    # Check if at least one identifier is literally there
+                    is_literal = any(ident.lower() in content.lower() for ident in identifiers)
 
                 res_ids.append(doc_id)
                 res_metas.append({
                     "path": doc_id,
                     "boosted": is_boosted,
+                    "literal_match": is_literal,
                     "rrf_score": rrf_scores[doc_id]
                 })
                 res_docs.append(content)
             except Exception:
                 continue
 
-        # [v0.2.1] Better 0-Results logic
         if not res_ids:
+            # ... [omitted helpful suggestion logic] ...
+
             # Detect files on disk for helpful suggestion
             gitignore = GitignoreParser(project_path)
             # Just check if at least ONE file exists that matches the pattern but isn't indexed

@@ -13,22 +13,42 @@ def create_mcp_server():
     app = Server("Antigravity Context Engine (ACE)")
     indexer = Indexer()
     
-    # State to persist last used project path
+    # State to persist last used project path (In-memory)
     state = {
         "last_project_path": None
     }
+    
+    # Persistencia de ruta entre reinicios del servidor (File-based)
+    PATH_STORAGE = os.path.join(os.path.expanduser("~"), ".ace_last_path")
 
     def resolve_project_path(arguments: dict) -> str:
         """Infiere el project_path si no se provee."""
         path = arguments.get("project_path")
+        
+        # 1. Si el usuario provee uno, mandatorio usarlo y guardarlo
         if path:
             state["last_project_path"] = path
+            try:
+                with open(PATH_STORAGE, "w") as f:
+                    f.write(path)
+            except: pass
             return path
         
+        # 2. Si ya lo tenemos en memoria en esta sesión
         if state["last_project_path"]:
             return state["last_project_path"]
         
-        # Fallback to current working directory
+        # 3. Si existe en el archivo de persistencia
+        if os.path.exists(PATH_STORAGE):
+            try:
+                with open(PATH_STORAGE, "r") as f:
+                    p = f.read().strip()
+                    if os.path.exists(p):
+                        state["last_project_path"] = p
+                        return p
+            except: pass
+        
+        # 4. Fallback final al CWD
         cwd = os.getcwd()
         sys.stderr.write(f"[WARN] No project_path provided. Falling back to CWD: {cwd}\n")
         state["last_project_path"] = cwd
@@ -139,7 +159,13 @@ def create_mcp_server():
                 for doc, meta in zip(documents, metadatas):
                     path = meta.get('path', 'unknown')
                     is_boosted = meta.get('boosted', False)
-                    text_output.append(f"--- File: {path} {' [PRIORITY MATCH]' if is_boosted else ''} ---")
+                    is_literal = meta.get('literal_match', False)
+                    
+                    # Etiqueta de precisión
+                    match_type = " [LITERAL MATCH] ✅" if is_literal else " [SEMANTIC ONLY] 🧠"
+                    priority = " [PRIORITY]" if is_boosted else ""
+                    
+                    text_output.append(f"--- File: {path}{match_type}{priority} ---")
                     text_output.append(doc[:3000] if is_boosted else doc[:1500])
                     text_output.append("\n" + "-"*20 + "\n")
                 
