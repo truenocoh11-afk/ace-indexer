@@ -59,7 +59,7 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.7.0] 💎 Hybrid search. project_path is OPTIONAL (infers from last call or CWD).",
+                description="[v0.7.1] 💎 Hybrid search (Precision & Auto-Index). project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
