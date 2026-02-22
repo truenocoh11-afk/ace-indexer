@@ -763,7 +763,7 @@ class Indexer:
                 if existing:
                     existing["score"] += 15
                 else:
-                    filename_matches.append({"id": match["id"], "score": 8})
+                    filename_matches.append({"id": match["id"], "score": 8, "remote": match.get("remote", False)})
         else:
             try:
                 client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
@@ -779,7 +779,7 @@ class Indexer:
             literal_results = self._grep_search(project_path, query_text, file_pattern)
             for match in literal_results:
                 if not any(v["id"] == match["id"] for v in vector_results):
-                    filename_matches.append({"id": match["id"], "score": 3})
+                    filename_matches.append({"id": match["id"], "score": 3, "remote": match.get("remote", False)})
 
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
@@ -805,6 +805,10 @@ class Indexer:
                 content = ""
                 is_boosted = any(f["id"] == doc_id for f in filename_matches)
                 
+                # Prepare Chroma Client once if needed
+                _chroma_client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+                _chroma_col = _chroma_client.get_collection(name="project_context")
+
                 if not is_remote:
                     # LOCAL FILE
                     with open(doc_id, "r", encoding="utf-8", errors="ignore") as f:
@@ -813,15 +817,23 @@ class Indexer:
                         continue
                     display_path = doc_id
                     env_name = None
+                    # [V3: Recover skeleton from Chroma for semantic snippets]
+                    try:
+                        _sk_entry = _chroma_col.get(ids=[doc_id], include=["metadatas"])
+                        skeleton_text = _sk_entry["metadatas"][0].get("skeleton", "") if _sk_entry["metadatas"] else ""
+                    except Exception:
+                        skeleton_text = ""
                 else:
                     # REMOTE FILE (Load from Chroma)
-                    client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-                    collection = client.get_collection(name="project_context")
-                    remote_entry = collection.get(ids=[doc_id], include=["documents", "metadatas"])
-                    if not remote_entry["documents"]: continue
-                    content = remote_entry["documents"][0]
-                    display_path = remote_entry["metadatas"][0]["path"]
-                    env_name = remote_entry["metadatas"][0]["env"]
+                    try:
+                        remote_entry = _chroma_col.get(ids=[doc_id], include=["documents", "metadatas"])
+                        if not remote_entry["documents"]: continue
+                        content = remote_entry["documents"][0]
+                        display_path = remote_entry["metadatas"][0]["path"]
+                        env_name = remote_entry["metadatas"][0]["env"]
+                        skeleton_text = ""
+                    except Exception:
+                        continue
 
                 # [Fase B: Literal Match Detection]
                 is_literal = False
@@ -830,6 +842,24 @@ class Indexer:
                 else:
                     is_literal = any(ident.lower() in content.lower() for ident in identifiers)
 
+                # [V3: Line Tracking — enrichment at result-build time]
+                match_line = 0
+                if not is_remote:
+                    qt_lower = query_text.lower()
+                    match_line = next(
+                        (i + 1 for i, l in enumerate(content.splitlines()) if qt_lower in l.lower()),
+                        0
+                    )
+                    if match_line == 0 and identifiers:
+                        for ident in identifiers:
+                            found = next(
+                                (i + 1 for i, l in enumerate(content.splitlines()) if ident.lower() in l.lower()),
+                                0
+                            )
+                            if found:
+                                match_line = found
+                                break
+
                 res_ids.append(doc_id)
                 res_metas.append({
                     "path": display_path,
@@ -837,7 +867,9 @@ class Indexer:
                     "literal_match": is_literal,
                     "remote": is_remote,
                     "env": env_name,
-                    "rrf_score": rrf_scores[doc_id]
+                    "rrf_score": rrf_scores[doc_id],
+                    "line": match_line,
+                    "skeleton": skeleton_text
                 })
                 res_docs.append(content)
             except Exception as e:

@@ -240,9 +240,14 @@ def create_mcp_server():
                 rel_path = os.path.relpath(path, project_path)
             except Exception:
                 rel_path = path
+            skeleton = meta.get("skeleton", "")
             limit = 800 if meta.get("boosted", False) else 400
             lines.append(f"--- {rel_path} ---")
-            lines.append(doc[:limit])
+            # Preferir skeleton (firmas semánticas) sobre recorte ciego
+            if skeleton and len(skeleton) > 50:
+                lines.append(skeleton[:limit])
+            else:
+                lines.append(doc[:limit])
 
         return "\n".join(lines)
 
