@@ -85,7 +85,7 @@ class MemoryManager:
                 return filepath.read_text(encoding="utf-8")
             return f"[ERROR] Archivo para '{memory_type}' no encontrado."
     
-    def write(self, memory_type: str, content: str, append: bool = False, force: bool = False):
+    def write(self, memory_type: str, content: str, append: bool = True, force: bool = False, archive_legacy: bool = False):
         """Escribe en un archivo de memoria."""
         self.ensure_structure()
         filename = self.MEMORY_FILES.get(memory_type)
@@ -94,34 +94,38 @@ class MemoryManager:
             
         filepath = self.memory_dir / filename
         
-        # Security Check: Smart Overwrite with Legacy Preservation
-        if not append and not force and filepath.exists():
+        # Security Check: Smart Overwrite with optional Legacy Preservation
+        if filepath.exists():
             existing_content = filepath.read_text(encoding="utf-8").strip()
             template_content = self.TEMPLATES.get(memory_type, "").strip()
             
             if existing_content and existing_content != template_content:
-                # Instead of throwing a hard error, preserve the old context as legacy
-                import datetime
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                
-                new_full_content = (
-                    f"{content}\n\n"
-                    f"---\n\n"
-                    f"## 🗄️ Legacy {memory_type.capitalize()} (Archived on {timestamp})\n"
-                    f"> This content was preserved to prevent accidental data loss during a full overwrite.\n\n"
-                    f"{existing_content}"
-                )
-                
-                try:
-                    filepath.write_text(new_full_content + "\n", encoding="utf-8")
-                    msg = f"[WARN-OK] Escrito en {memory_type}. El contenido anterior fue preservado como 'Legacy' para evitar pérdida de datos por sobreescritura sin 'append=True'."
-                    if memory_type in ["context", "task"]:
-                        msg += "\n\n💡 SELF-CHECK: Revisa si el contenido heredado (Legacy) causa confusión. Si es así, puedes borrarlo explícitamente usando force=True en la próxima actualización."
-                    return msg
-                except Exception as e:
-                    return f"[ERROR] Falló la escritura con preservación legacy: {str(e)}"
+                if archive_legacy:
+                    # Move old context to legacy
+                    import datetime
+                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
+                    new_full_content = (
+                        f"{content}\n\n"
+                        f"---\n\n"
+                        f"## 🗄️ Legacy {memory_type.capitalize()} (Archived on {timestamp})\n"
+                        f"> This content was preserved to avoid confusion with new context.\n\n"
+                        f"{existing_content}"
+                    )
+                    
+                    try:
+                        filepath.write_text(new_full_content + "\n", encoding="utf-8")
+                        msg = f"[WARN-OK] Escrito en {memory_type}. El contenido anterior fue convertido a 'Legacy'."
+                        if memory_type in ["context", "task"]:
+                            msg += "\n\n💡 SELF-CHECK: Revisa si el contenido heredado (Legacy) ya no es necesario; podrás borrarlo usando force=True en tu próxima escritura si así lo deseas."
+                        return msg
+                    except Exception as e:
+                        return f"[ERROR] Falló la escritura con preservación legacy: {str(e)}"
+                elif not append and not force:
+                    return f"[SECURITY ERROR] Attempted to overwrite existing '{memory_type}'. By default you must append (append=True). If old context is contradictory, use archive_legacy=True to archive it. To completely wipe it, use force=True."
 
         mode = "a" if append else "w"
+
         
         try:
             with open(filepath, mode, encoding="utf-8") as f:
