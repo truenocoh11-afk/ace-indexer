@@ -85,7 +85,7 @@ class MemoryManager:
                 return filepath.read_text(encoding="utf-8")
             return f"[ERROR] Archivo para '{memory_type}' no encontrado."
     
-    def write(self, memory_type: str, content: str, append: bool = False):
+    def write(self, memory_type: str, content: str, append: bool = False, force: bool = False):
         """Escribe en un archivo de memoria."""
         self.ensure_structure()
         filename = self.MEMORY_FILES.get(memory_type)
@@ -93,6 +93,34 @@ class MemoryManager:
             return f"[ERROR] Tipo '{memory_type}' no soportado."
             
         filepath = self.memory_dir / filename
+        
+        # Security Check: Smart Overwrite with Legacy Preservation
+        if not append and not force and filepath.exists():
+            existing_content = filepath.read_text(encoding="utf-8").strip()
+            template_content = self.TEMPLATES.get(memory_type, "").strip()
+            
+            if existing_content and existing_content != template_content:
+                # Instead of throwing a hard error, preserve the old context as legacy
+                import datetime
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                
+                new_full_content = (
+                    f"{content}\n\n"
+                    f"---\n\n"
+                    f"## 🗄️ Legacy {memory_type.capitalize()} (Archived on {timestamp})\n"
+                    f"> This content was preserved to prevent accidental data loss during a full overwrite.\n\n"
+                    f"{existing_content}"
+                )
+                
+                try:
+                    filepath.write_text(new_full_content + "\n", encoding="utf-8")
+                    msg = f"[WARN-OK] Escrito en {memory_type}. El contenido anterior fue preservado como 'Legacy' para evitar pérdida de datos por sobreescritura sin 'append=True'."
+                    if memory_type in ["context", "task"]:
+                        msg += "\n\n💡 SELF-CHECK: Revisa si el contenido heredado (Legacy) causa confusión. Si es así, puedes borrarlo explícitamente usando force=True en la próxima actualización."
+                    return msg
+                except Exception as e:
+                    return f"[ERROR] Falló la escritura con preservación legacy: {str(e)}"
+
         mode = "a" if append else "w"
         
         try:
@@ -105,7 +133,6 @@ class MemoryManager:
                 msg += "\n\n💡 SELF-CHECK: ¿La información registrada permite a un agente sin historial operar este proyecto?"
             return msg
         except Exception as e:
-
             return f"[ERROR] Falló la escritura: {str(e)}"
 
     def has_booted(self) -> bool:

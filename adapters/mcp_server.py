@@ -184,14 +184,15 @@ def create_mcp_server():
             ),
             types.Tool(
                 name="ace_update_memory",
-                description="Update memory. project_path is OPTIONAL.",
+                description="Update memory. If append=False and the file has content, the old content will be preserved under a '## 🗄️ Legacy' section instead of being lost. Use force=True ONLY if the legacy content is confusing and you want a clean slate. project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "project_path": {"type": "string"},
                         "memory_type": {"type": "string", "enum": ["context", "task", "lessons"]},
                         "content": {"type": "string"},
-                        "append": {"type": "boolean", "default": False}
+                        "append": {"type": "boolean", "default": False},
+                        "force": {"type": "boolean", "description": "Set to True ONLY to explicitly bypass the legacy-preservation and completely wipe the file.", "default": False}
                     },
                     "required": ["memory_type", "content"]
                 }
@@ -406,8 +407,9 @@ def create_mcp_server():
                 memory_type = arguments.get("memory_type")
                 content = arguments.get("content")
                 append = arguments.get("append", False)
+                force = arguments.get("force", False)
                 manager = MemoryManager(project_path)
-                result = manager.write(memory_type, content, append)
+                result = manager.write(memory_type, content, append, force)
                 return [types.TextContent(type="text", text=result)]
                 
             elif name == "ace_sync_remote_index":
