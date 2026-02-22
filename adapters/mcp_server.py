@@ -76,6 +76,19 @@ def create_mcp_server():
                 }
             ),
             types.Tool(
+                name="ace_search_code_compact",
+                description="[BETA v1.0] ⚡ High-density TSV output. Same search power as ace_search_code but 50-70% fewer tokens. PREFER THIS for architecture queries, exploration, and when searching many files. Returns TSV rows + ===SOURCE=== blocks.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search query"},
+                        "project_path": {"type": "string", "description": "Absolute path (optional)"},
+                        "file_pattern": {"type": "string", "description": "Optional glob pattern"}
+                    },
+                    "required": ["query"]
+                }
+            ),
+            types.Tool(
                 name="ace_sync_remote_index",
                 description="[v0.9.1] 🌐 Phase 1: Generate command to count remote files (Delegate Mode).",
                 inputSchema={
@@ -184,6 +197,51 @@ def create_mcp_server():
             )
         ]
 
+    def _format_compact(documents, metadatas, query, project_path):
+        """Formatea resultados en TSV ultra-denso para minimizar consumo de tokens."""
+        lines = []
+        lines.append(f"[SEARCH: {query}] [RESULTS: {len(documents)}]")
+        lines.append("FILE\tTYPE\tFLAGS\tSNIPPET_CHARS")
+
+        for doc, meta in zip(documents, metadatas):
+            path = meta.get("path", "unknown")
+            is_remote = meta.get("remote", False)
+            env = meta.get("env", "")
+            is_boosted = meta.get("boosted", False)
+
+            flags = []
+            if is_remote:
+                flags.append(f"REMOTE:{env}")
+            if is_boosted:
+                flags.append("PRIORITY")
+
+            rel_path = path
+            try:
+                import os
+                rel_path = os.path.relpath(path, project_path)
+            except Exception:
+                pass
+
+            flags_str = "|".join(flags) if flags else "-"
+            snippet_len = min(len(doc), 600)
+            lines.append(f"{rel_path}\tcode\t{flags_str}\t{snippet_len}")
+
+        lines.append("")
+        lines.append("===SOURCES===")
+        for doc, meta in zip(documents, metadatas):
+            path = meta.get("path", "unknown")
+            is_boosted = meta.get("boosted", False)
+            try:
+                import os
+                rel_path = os.path.relpath(path, project_path)
+            except Exception:
+                rel_path = path
+            limit = 800 if is_boosted else 400
+            lines.append(f"--- {rel_path} ---")
+            lines.append(doc[:limit])
+
+        return "\n".join(lines)
+
     @app.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
         sys.stderr.write(f"[DEBUG] call_tool invoked: {name} with {arguments}\n")
@@ -261,7 +319,22 @@ def create_mcp_server():
                     text_output.append("\n" + "-"*20 + "\n")
                 
                 return [types.TextContent(type="text", text="\n".join(text_output))]
+            
+            elif name == "ace_search_code_compact":
+                query = arguments.get("query")
+                project_path = resolve_project_path(arguments)
+                file_pattern = arguments.get("file_pattern")
 
+                results = indexer.query(project_path, query, file_pattern=file_pattern)
+
+                documents = results.get("documents", [[]])[0]
+                metadatas = results.get("metadatas", [[]])[0]
+
+                if not documents:
+                    return [types.TextContent(type="text", text=f"[COMPACT] 0 results for: '{query}'. Try ace_search_code for hints.")]
+
+                output = _format_compact(documents, metadatas, query, project_path)
+                return [types.TextContent(type="text", text=output)]
 
             elif name == "ace_index_status":
                 project_path = resolve_project_path(arguments)
