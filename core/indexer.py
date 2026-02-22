@@ -642,7 +642,11 @@ class Indexer:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                     if query_text_lower in content.lower():
-                        matches.append({"id": filepath, "remote": False})
+                        match_line = next(
+                            (i + 1 for i, l in enumerate(content.splitlines()) if query_text_lower in l.lower()),
+                            0
+                        )
+                        matches.append({"id": filepath, "remote": False, "line": match_line})
             except Exception: continue
             
         # 2. Remote Files (Search in cached snippets)

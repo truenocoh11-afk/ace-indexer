@@ -83,7 +83,8 @@ def create_mcp_server():
                     "properties": {
                         "query": {"type": "string", "description": "The search query"},
                         "project_path": {"type": "string", "description": "Absolute path (optional)"},
-                        "file_pattern": {"type": "string", "description": "Optional glob pattern"}
+                        "file_pattern": {"type": "string", "description": "Optional glob pattern"},
+                        "auto_usages": {"type": "boolean", "description": "If true, finds usages of the top-matched symbol automatically."}
                     },
                     "required": ["query"]
                 }
@@ -197,17 +198,28 @@ def create_mcp_server():
             )
         ]
 
-    def _format_compact(documents, metadatas, query, project_path):
-        """Formatea resultados en TSV ultra-denso para minimizar consumo de tokens."""
+    def _format_compact(documents, metadatas, query, project_path, is_usage_block=False):
+        """Formatea resultados en TSV ultra-denso. Soporta bloques de dominó."""
+        import os
         lines = []
-        lines.append(f"[SEARCH: {query}] [RESULTS: {len(documents)}]")
-        lines.append("FILE\tTYPE\tFLAGS\tSNIPPET_CHARS")
+        if not is_usage_block:
+            lines.append(f"[SEARCH: {query}] [RESULTS: {len(documents)}]")
+        else:
+            lines.append(f"[DOMINO: USAGES FOR '{query}'] [RESULTS: {len(documents)}]")
+
+        lines.append("FILE\tTYPE\tFLAGS\tLOCATION\tSNIPPET_CHARS")
 
         for doc, meta in zip(documents, metadatas):
             path = meta.get("path", "unknown")
+            try:
+                rel_path = os.path.relpath(path, project_path)
+            except Exception:
+                rel_path = path
+
             is_remote = meta.get("remote", False)
             env = meta.get("env", "")
             is_boosted = meta.get("boosted", False)
+            line_num = meta.get("line", 0)
 
             flags = []
             if is_remote:
@@ -215,28 +227,20 @@ def create_mcp_server():
             if is_boosted:
                 flags.append("PRIORITY")
 
-            rel_path = path
-            try:
-                import os
-                rel_path = os.path.relpath(path, project_path)
-            except Exception:
-                pass
-
             flags_str = "|".join(flags) if flags else "-"
+            location = f"L{line_num}" if line_num > 0 else "-"
             snippet_len = min(len(doc), 600)
-            lines.append(f"{rel_path}\tcode\t{flags_str}\t{snippet_len}")
+            lines.append(f"{rel_path}\tcode\t{flags_str}\t{location}\t{snippet_len}")
 
         lines.append("")
         lines.append("===SOURCES===")
         for doc, meta in zip(documents, metadatas):
             path = meta.get("path", "unknown")
-            is_boosted = meta.get("boosted", False)
             try:
-                import os
                 rel_path = os.path.relpath(path, project_path)
             except Exception:
                 rel_path = path
-            limit = 800 if is_boosted else 400
+            limit = 800 if meta.get("boosted", False) else 400
             lines.append(f"--- {rel_path} ---")
             lines.append(doc[:limit])
 
@@ -321,9 +325,11 @@ def create_mcp_server():
                 return [types.TextContent(type="text", text="\n".join(text_output))]
             
             elif name == "ace_search_code_compact":
+                import re
                 query = arguments.get("query")
                 project_path = resolve_project_path(arguments)
                 file_pattern = arguments.get("file_pattern")
+                auto_usages = arguments.get("auto_usages", False)
 
                 results = indexer.query(project_path, query, file_pattern=file_pattern)
 
@@ -334,6 +340,22 @@ def create_mcp_server():
                     return [types.TextContent(type="text", text=f"[COMPACT] 0 results for: '{query}'. Try ace_search_code for hints.")]
 
                 output = _format_compact(documents, metadatas, query, project_path)
+
+                # Efecto Dominó: buscar usos del símbolo principal
+                if auto_usages and documents:
+                    sym_match = re.search(
+                        r'(?:function|class|def|const|let|var|export function)\s+([a-zA-Z0-9_]+)',
+                        documents[0]
+                    )
+                    if sym_match:
+                        symbol = sym_match.group(1)
+                        usg_results = indexer.query(project_path, symbol)
+                        usg_docs = usg_results.get("documents", [[]])[0]
+                        usg_metas = usg_results.get("metadatas", [[]])[0]
+                        if usg_docs:
+                            usg_block = _format_compact(usg_docs, usg_metas, symbol, project_path, is_usage_block=True)
+                            output += "\n\n" + usg_block
+
                 return [types.TextContent(type="text", text=output)]
 
             elif name == "ace_index_status":
