@@ -6,6 +6,7 @@ import fnmatch
 import re
 from chromadb.config import Settings
 import sys
+import time
 from .skeletonizer import Skeletonizer
 
 class GitignoreParser:
@@ -134,6 +135,7 @@ class Indexer:
         return False
 
     def index_project(self, project_path: str, force: bool = False, extra_ignore_dirs: list = None):
+        start_time = time.time()
         sys.stderr.write(f"[Indexer] Indexing project: {project_path}\n")
         
         # [v0.8.2] WSL Cross-filesystem guard
@@ -264,7 +266,12 @@ class Indexer:
             _flush()  # Final flush for remainder
 
         self._save_hashes(hashes_path, new_hashes)
-        return {"indexed": len(files_to_index), "deleted": len(ids_to_delete)}
+        duration = time.time() - start_time
+        return {
+            "indexed": len(files_to_index),
+            "deleted": len(ids_to_delete),
+            "duration_seconds": round(duration, 2)
+        }
 
     def index_remote_data(self, project_path: str, remote_data: dict):
         """Incorporate remote file snippets into the local vector index."""

@@ -12,28 +12,50 @@ class Skeletonizer:
 
     def skeletonize(self, code: str) -> str:
         """
-        Parses python code and returns a skeleton (imports, class/func signatures, docstrings).
+        [v0.9.0] Full AST-based skeleton extraction.
+        Uses tree-sitter to traverse the parse tree, extracting only structural
+        nodes (imports, class/function signatures). This is immune to false
+        positives from strings and comments that contain 'def' or 'class'.
         """
-        tree = self.parser.parse(bytes(code, "utf8"))
-        
-        # This is a simplified extraction logic
-        # In a full implementation, we traverse the tree and reconstruct the code
-        # keeping only definition nodes.
-        
-        # For now, let's just return a mock "Smart Skeleton" to prove the concept
-        # until we write the full tree walker
-        lines = code.splitlines()
-        skeleton_lines = []
-        
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("import") or stripped.startswith("from"):
-                skeleton_lines.append(line)
-            elif stripped.startswith("class ") or stripped.startswith("def "):
-                skeleton_lines.append(line)
-                if ":" in line:
-                     # Add simplified body placeholder
-                     indent = len(line) - len(line.lstrip())
-                     skeleton_lines.append(" " * (indent + 4) + "...")
-        
-        return "\n".join(skeleton_lines)
+        try:
+            tree = self.parser.parse(bytes(code, "utf8"))
+            lines = code.splitlines()
+            skeleton_lines = []
+
+            def _traverse(node):
+                # Capture import nodes
+                if node.type in ("import_statement", "import_from_statement"):
+                    start = node.start_point[0]
+                    skeleton_lines.append(lines[start])
+
+                # Capture class/function definitions (signature only, not body)
+                elif node.type in ("function_definition", "async_function_definition", "class_definition"):
+                    start = node.start_point[0]
+                    # Find the colon marking end of signature line
+                    for i in range(start, min(start + 10, len(lines))):
+                        skeleton_lines.append(lines[i])
+                        if lines[i].rstrip().endswith(":"):
+                            indent = len(lines[i]) - len(lines[i].lstrip())
+                            skeleton_lines.append(" " * (indent + 4) + "...")
+                            break
+                    return  # Do NOT descend into body; only top-level signature needed
+
+                # Recurse into children for all other nodes
+                for child in node.children:
+                    _traverse(child)
+
+            _traverse(tree.root_node)
+            return "\n".join(skeleton_lines)
+
+        except Exception:
+            # Fallback: safe naive line scan if tree-sitter fails for non-Python files
+            lines = code.splitlines()
+            skeleton_lines = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith(("import ", "from ", "class ", "def ", "async def ")):
+                    skeleton_lines.append(line)
+                    if ":" in line:
+                        indent = len(line) - len(line.lstrip())
+                        skeleton_lines.append(" " * (indent + 4) + "...")
+            return "\n".join(skeleton_lines)
