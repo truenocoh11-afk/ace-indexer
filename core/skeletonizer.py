@@ -34,23 +34,30 @@ class Skeletonizer:
                     if name_node:
                         line_map[name_node.text.decode("utf8")] = start + 1
 
-                # Capture class/function definitions (signature only, not body)
+                # Capture class/function definitions
                 elif node.type in ("function_definition", "async_function_definition", "class_definition"):
                     start = node.start_point[0]
                     # Register name -> line (base-1 for LOCATION)
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         line_map[name_node.text.decode("utf8")] = start + 1
-                    # Find the colon marking end of signature line
+                    
+                    # Add signature to skeleton
                     for i in range(start, min(start + 10, len(lines))):
                         skeleton_lines.append(lines[i])
                         if lines[i].rstrip().endswith(":"):
                             indent = len(lines[i]) - len(lines[i].lstrip())
                             skeleton_lines.append(" " * (indent + 4) + "...")
                             break
-                    return  # Do NOT descend into body; only top-level signature needed
+                    
+                    if node.type == "class_definition":
+                        # Descend into classes to catch methods
+                        pass 
+                    else:
+                        # For functions, stop here to avoid capturing local variables/internal logic in skeleton
+                        return 
 
-                # Recurse into children for all other nodes
+                # Recurse into children
                 for child in node.children:
                     _traverse(child)
 
