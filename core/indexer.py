@@ -133,9 +133,18 @@ class Indexer:
             
         return False
 
-    def index_project(self, project_path: str, force: bool = False):
+    def index_project(self, project_path: str, force: bool = False, extra_ignore_dirs: list = None):
         sys.stderr.write(f"[Indexer] Indexing project: {project_path}\n")
         
+        # [v0.8.2] WSL Cross-filesystem guard
+        norm = project_path.replace("\\", "/")
+        if norm.startswith("/mnt/"):
+            sys.stderr.write(
+                "[Indexer] WARNING: Project is on Windows filesystem via WSL (/mnt/...). "
+                "Performance will be significantly degraded. "
+                "Consider moving the project to ~/projects/ inside WSL for 5-10x faster indexing.\n"
+            )
+            
         indices_dir, hashes_path = self._get_paths(project_path)
         
         # Initialize Chroma for this project (Stored locally in .ace/indices)
@@ -153,14 +162,30 @@ class Indexer:
 
         # Walk files
         for root, dirs, files in os.walk(project_path):
-            # 1. Universal Hard Blocks (Never index these, regardless of gitignore)
-            if ".ace" in dirs: dirs.remove(".ace")
-            if ".git" in dirs: dirs.remove(".git")
-            if "node_modules" in dirs: dirs.remove("node_modules")
-            if "venv" in dirs: dirs.remove("venv")
-            if "__pycache__" in dirs: dirs.remove("__pycache__")
-            if ".idea" in dirs: dirs.remove(".idea")
-            if ".vscode" in dirs: dirs.remove(".vscode")
+            # [v0.8.2] Exhaustive hard-block set — never traverse these directories
+            _BLOCKED = {
+                # ACE / VCS
+                '.ace', '.git', '.svn', '.hg',
+                # Virtual environments (all naming conventions)
+                'venv', '.venv', 'env', '.env', 'virtualenv', '.virtualenv',
+                # Python cache / test artifacts
+                '__pycache__', '.mypy_cache', '.pytest_cache', '.tox', '.cache',
+                'site-packages', 'dist-packages', 'lib', 'lib64',
+                # Build / dist
+                'dist', 'build', 'out', 'bin', 'obj', 'target', 'release', 'debug',
+                # Package managers
+                'node_modules', 'bower_components', 'jspm_packages',
+                'vendor', 'Pods', 'packages', 'wheels',
+                # IDE
+                '.idea', '.vscode', '.eclipse', '.settings',
+                # Mobile / Game
+                'Builds', 'Library', 'Temp', 'DerivedData',
+            }
+            # Apply extra dirs passed by the LLM agent/tool caller at call time
+            _blocked_effective = _BLOCKED | set(extra_ignore_dirs or [])
+            
+            # Prune directories: modifying dirs in-place affects os.walk traversal
+            dirs[:] = [d for d in dirs if d not in _blocked_effective]
             
             # 2. Gitignore & Optimization
             # Check if current root is ignored by gitignore
@@ -202,39 +227,41 @@ class Indexer:
             sys.stderr.write(f"[Indexer] Removing {len(ids_to_delete)} stale files.\n")
             collection.delete(ids=ids_to_delete)
 
-        # Process Additions/Updates
+        # [v0.8.2] Process Additions/Updates — Streaming batch (Zero RAM spike)
         if files_to_index:
             sys.stderr.write(f"[Indexer] Indexing {len(files_to_index)} new/changed files.\n")
-            documents = []
-            metadatas = []
-            ids = []
-            
+            # Query dynamic max instead of hardcoded 100 (Context7: client.get_max_batch_size())
+            try:
+                max_batch = client.get_max_batch_size()
+            except AttributeError:
+                max_batch = 100
+                
+            batch_size = min(max_batch, 500)
+            docs_buf, metas_buf, ids_buf = [], [], []
+
+            def _flush():
+                if docs_buf:
+                    collection.upsert(documents=docs_buf[:], metadatas=metas_buf[:], ids=ids_buf[:])
+                    docs_buf.clear(); metas_buf.clear(); ids_buf.clear()
+
             for filepath in files_to_index:
                 try:
                     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
-                    
                     skeleton = self.skeletonizer.skeletonize(content)
-                    
-                    documents.append(content)
-                    metadatas.append({
-                        "path": filepath, 
+                    docs_buf.append(content)
+                    metas_buf.append({
+                        "path": filepath,
                         "skeleton": skeleton,
                         "type": "code",
                         "ident_bag": " ".join(self._extract_identifiers(content))
                     })
-                    ids.append(filepath)
+                    ids_buf.append(filepath)
+                    if len(docs_buf) >= batch_size:
+                        _flush()
                 except Exception as e:
                     sys.stderr.write(f"Error indexing {filepath}: {e}\n")
-
-            # Batch add
-            batch_size = 100
-            for i in range(0, len(documents), batch_size):
-                collection.upsert(
-                    documents=documents[i:i+batch_size],
-                    metadatas=metadatas[i:i+batch_size],
-                    ids=ids[i:i+batch_size]
-                )
+            _flush()  # Final flush for remainder
 
         self._save_hashes(hashes_path, new_hashes)
         return {"indexed": len(files_to_index), "deleted": len(ids_to_delete)}

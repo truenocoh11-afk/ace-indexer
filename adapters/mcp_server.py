@@ -151,7 +151,12 @@ def create_mcp_server():
                     "type": "object",
                     "properties": {
                         "project_path": {"type": "string"},
-                        "force": {"type": "boolean"}
+                        "force": {"type": "boolean"},
+                        "extra_ignore_dirs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Additional directory names to ignore during indexing (e.g. ['site-packages', 'wheels'])"
+                        }
                     }
                 }
             ),
@@ -374,7 +379,8 @@ def create_mcp_server():
             elif name == "ace_index_project":
                 project_path = resolve_project_path(arguments)
                 force = arguments.get("force", False)
-                stats = indexer.index_project(project_path, force=force)
+                extra_ignore_dirs = arguments.get("extra_ignore_dirs")
+                stats = indexer.index_project(project_path, force=force, extra_ignore_dirs=extra_ignore_dirs)
                 return [types.TextContent(type="text", text=f"Project Indexed Successfully.\nStats: {stats}")]
 
             elif name == "ace_boot_memory":
