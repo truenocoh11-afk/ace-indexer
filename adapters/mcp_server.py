@@ -15,42 +15,25 @@ def create_mcp_server():
     app = Server("Antigravity Context Engine (ACE)")
     indexer = Indexer()
     
-    # State to persist last used project path (In-memory)
+    # State to persist last used project path (In-memory explicitly isolated)
     state = {
         "last_project_path": None
     }
-    
-    # Persistencia de ruta entre reinicios del servidor (File-based)
-    PATH_STORAGE = os.path.join(os.path.expanduser("~"), ".ace_last_path")
 
     def resolve_project_path(arguments: dict) -> str:
-        """Infiere el project_path si no se provee."""
+        """Infiere el project_path si no se provee. Uses only isolated RAM strictly to prevent IDE crosstalk."""
         path = arguments.get("project_path")
         
-        # 1. Si el usuario provee uno, mandatorio usarlo y guardarlo
+        # 1. Si el usuario provee uno, mandatorio guardarlo aisladamente
         if path:
             state["last_project_path"] = path
-            try:
-                with open(PATH_STORAGE, "w") as f:
-                    f.write(path)
-            except: pass
             return path
         
-        # 2. Si ya lo tenemos en memoria en esta sesión
+        # 2. Si ya lo tenemos en esta sesión
         if state["last_project_path"]:
             return state["last_project_path"]
         
-        # 3. Si existe en el archivo de persistencia
-        if os.path.exists(PATH_STORAGE):
-            try:
-                with open(PATH_STORAGE, "r") as f:
-                    p = f.read().strip()
-                    if os.path.exists(p):
-                        state["last_project_path"] = p
-                        return p
-            except: pass
-        
-        # 4. Fallback final al CWD
+        # 3. Fallback final al CWD general
         cwd = os.getcwd()
         sys.stderr.write(f"[WARN] No project_path provided. Falling back to CWD: {cwd}\n")
         state["last_project_path"] = cwd

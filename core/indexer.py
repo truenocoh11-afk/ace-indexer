@@ -220,7 +220,8 @@ class Indexer:
                     metadatas.append({
                         "path": filepath, 
                         "skeleton": skeleton,
-                        "type": "code"
+                        "type": "code",
+                        "ident_bag": " ".join(self._extract_identifiers(content))
                     })
                     ids.append(filepath)
                 except Exception as e:
@@ -293,21 +294,27 @@ class Indexer:
         return False
 
     def _weighted_rrf(self, filename_results: list, vector_results: list, k: int = 60, w_file: float = 3.0, w_vec: float = 1.0) -> list:
-        """Reciprocal Rank Fusion with weights for hybrid ranking."""
-        scores = {} # path -> score
-        
-        # Process Filename Results
+        """[v0.8.0] Weighted RRF with min-max normalization.
+        Scores are normalized to [0, 1] range after fusion for stable ranking.
+        """
+        raw_scores = {}
         for rank, item in enumerate(filename_results, start=1):
             path = item["id"]
-            scores[path] = scores.get(path, 0.0) + (w_file / (k + rank))
+            raw_scores[path] = raw_scores.get(path, 0.0) + (w_file / (k + rank))
 
-        # Process Vector Results
         for rank, item in enumerate(vector_results, start=1):
             path = item["id"]
-            # If we already have a score, we add vector score to it
-            scores[path] = scores.get(path, 0.0) + (w_vec / (k + rank))
+            raw_scores[path] = raw_scores.get(path, 0.0) + (w_vec / (k + rank))
 
-        # Sort by score descending
+        # Min-max normalize to [0, 1]
+        if raw_scores:
+            max_s = max(raw_scores.values())
+            min_s = min(raw_scores.values())
+            span = max_s - min_s if max_s != min_s else 1.0
+            scores = {p: (s - min_s) / span for p, s in raw_scores.items()}
+        else:
+            scores = raw_scores
+
         sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
         return sorted_ids, scores
 
@@ -440,31 +447,25 @@ class Indexer:
         words = re.findall(r'\w+', query.lower())
         return [w for w in words if w not in stopwords and len(w) > 2]
 
-    def _rerank_results(self, final_ids: list, rrf_scores: dict, query_keywords: list) -> list:
-        """Re-rank final fusion results by counting literal keyword matches in content."""
+    def _rerank_results(self, final_ids: list, rrf_scores: dict, query_keywords: list, metadatas_lookup: dict) -> tuple:
+        """[v0.7.0] Re-rank final results using ident_bag metadata instead of Disk I/O."""
         if not query_keywords:
             return final_ids, rrf_scores
             
         boosted_scores = rrf_scores.copy()
-        
-        # Only re-rank the top candidates to avoid excessive I/O
         candidates = final_ids[:15]
         
         for filepath in candidates:
             try:
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read().lower()
+                # Use metadata ident_bag (lowercase) for keyword matching
+                ident_bag = metadatas_lookup.get(filepath, {}).get("ident_bag", "").lower()
                 
-                # Count keyword hits
-                hits = sum(1 for kw in query_keywords if kw in content)
-                # Apply boost: RRF scores are small, so 0.1 per hit is significant
+                hits = sum(1 for kw in query_keywords if kw.lower() in ident_bag)
                 boosted_scores[filepath] += (hits * 0.1)
             except Exception:
                 continue
         
-        # Re-sort ALL ids by boosted score
-        # (Though only candidates were changed, we sort everything to keep consistency)
-        new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores[x], reverse=True)
+        new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores.get(x, 0), reverse=True)
         return new_sorted_ids, boosted_scores
 
     def _extract_identifiers(self, query: str) -> list:
@@ -484,27 +485,25 @@ class Indexer:
         # Deduplicate while preserving order
         return list(dict.fromkeys(identifiers))
 
-    def _declaration_boost(self, final_ids: list, rrf_scores: dict, identifiers: list) -> tuple:
+    def _declaration_boost(self, final_ids: list, rrf_scores: dict, identifiers: list, metadatas_lookup: dict) -> tuple:
         """
-        [v0.6.0] Boost files that contain actual DECLARATIONS of queried identifiers.
-        
-        This specifically targets the "birth certificate" of a variable, not just mentions.
-        Includes mitigations for test files and over-ranking.
+        [v0.7.0] RAM-ONLY Declaration Boost.
+        Uses 'skeleton' from metadata to avoid reading files from disk.
         """
         if not identifiers:
             return final_ids, rrf_scores
         
         # Test/mock path patterns (reduced boost for these)
         TEST_PATH_PATTERNS = [
-            r'[/\\]tests?[/\\]', r'[/\\]specs?[/\\]', r'[/\\]__tests?__[/\\]',
-            r'[/\\]mocks?[/\\]', r'[/\\]fixtures?[/\\]',
+            r'[/\]tests?[/\]', r'[/specs?]', r'[/__tests?__]',
+            r'[/mocks?]', r'[/fixtures?]',
             r'\.test\.', r'\.spec\.', r'\.mock\.'
         ]
         
         # Declaration patterns for common languages
         DECL_PATTERNS = [
             # JavaScript/TypeScript
-            r'(?:let|const|var)\s+{ident}\s*[=:;]',
+            r'(?:let|const|var)\s+{ident}\s*[=:]',
             r'export\s+(?:let|const|var)\s+{ident}',
             r'export\s+(?:default\s+)?(?:function|class)\s+{ident}',
             r'(?:public|private|protected)?\s*{ident}\s*[=:]',
@@ -515,58 +514,24 @@ class Indexer:
             r'def\s+{ident}\s*\(',
             r'class\s+{ident}\s*[\(:]',
             r'async\s+def\s+{ident}\s*\(',
-            # General
+            # [Simplified patterns for skeleton matching]
             r'function\s+{ident}\s*\(',
-            r'{ident}\s*=\s*function\s*\(',
-            r'{ident}\s*=\s*\([^)]*\)\s*=>',
-            # CSS/SCSS/LESS
-            r'\.{ident}\s*\{',    # Class selector
-            r'\#{ident}\s*\{',    # ID selector
-            r'@{ident}\s+',       # At-rule
-            r'--{ident}\s*:',     # CSS Variable
-            
-            # Go (Golang)
-            r'func\s+{ident}\s*\(',
-            r'type\s+{ident}\s+(?:struct|interface)',
-            r'{ident}\s*:=\s*',
-            
-            # Rust
-            r'(?:let|const)\s+(?:mut\s+)?{ident}\s*[=:]',
-            r'fn\s+{ident}\s*[\(<]',
-            r'(?:struct|enum|trait|mod)\s+{ident}',
-            r'macro_rules!\s+{ident}',
-
-            # Terraform (HCL)
-            r'(?:resource|module|variable|output)\s+"[^"]+"\s+"{ident}"', 
-            r'(?:variable|module|output)\s+"{ident}"',
-            
-            # SQL
-            r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|PROCEDURE|FUNCTION|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?{ident}',
-
-            # HTML & Web Components
-            r'id=["\']{ident}["\']',              # id="app"
-            r'name=["\']{ident}["\']',            # name="email"
-            r'slot=["\']{ident}["\']',            # slot="header"
-            
-            # Frameworks (React, Vue, Angular)
-            r'ref=["\']{ident}["\']',             # ref="myInput" (Vue/React)
-            r'#{ident}\b',                        # #myVar (Angular template var)
-            
-            # Testing / Data Attributes
-            r'data-test-?id=["\']{ident}["\']',   # data-testid="submit-btn"
+            # Rust/Go
+            r'fn\s+{ident}\b',
+            r'func\s+{ident}\b',
         ]
         
-        MAX_BOOST = 1.5  # Cap to prevent over-ranking
-        
+        MAX_BOOST = 1.5
         boosted_scores = rrf_scores.copy()
         candidates = final_ids[:30]
         
         for filepath in candidates:
             try:
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                
-                # Check if this is a test/mock file
+                # Use skeleton metadata instead of full content
+                skeleton_content = metadatas_lookup.get(filepath, {}).get("skeleton", "")
+                if not skeleton_content:
+                    continue
+
                 is_test = any(re.search(p, filepath, re.IGNORECASE) for p in TEST_PATH_PATTERNS)
                 base_boost = 0.3 if is_test else 1.0
                 
@@ -574,96 +539,87 @@ class Indexer:
                 for ident in identifiers:
                     for pattern_template in DECL_PATTERNS:
                         pattern = pattern_template.format(ident=re.escape(ident))
-                        if re.search(pattern, content, re.MULTILINE):
+                        if re.search(pattern, skeleton_content, re.MULTILINE):
                             file_boost += base_boost
-                            prefix = "[TEST] " if is_test else ""
-                            sys.stderr.write(
-                                f"[Indexer] {prefix}Declaration boost +{base_boost}: "
-                                f"{os.path.basename(filepath)} declares '{ident}'\n"
-                            )
-                            break  # One boost per identifier per file
+                            break
                 
-                # Apply capped boost
                 if file_boost > 0:
                     boosted_scores[filepath] += min(file_boost, MAX_BOOST)
                 
             except Exception:
                 continue
         
-        # Re-sort ALL ids by boosted score
         new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores.get(x, 0), reverse=True)
         return new_sorted_ids, boosted_scores
 
-    def _word_boost(self, final_ids: list, rrf_scores: dict, identifiers: list) -> tuple:
-        """Boost files that contain any of the extracted identifiers."""
+    def _word_boost(self, final_ids: list, rrf_scores: dict, identifiers: list, metadatas_lookup: dict) -> tuple:
+        """[v0.7.0] RAM-ONLY identifier boost using ident_bag."""
         if not identifiers:
             return final_ids, rrf_scores
         
         boosted_scores = rrf_scores.copy()
-        # Check top 30 files for identifier hits
         candidates = final_ids[:30]
         
         for filepath in candidates:
             try:
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                
+                ident_bag = metadatas_lookup.get(filepath, {}).get("ident_bag", "")
+                if not ident_bag:
+                    continue
+
                 hits = 0
                 for ident in identifiers:
-                    # Case-sensitive check for identifiers is usually better for code
-                    if ident in content:
+                    if ident in ident_bag:
                         hits += 1
                 
-                # Apply a significant boost per identifier match
                 if hits > 0:
                     boosted_scores[filepath] += (hits * 0.5)
             except Exception:
                 continue
         
-        # Re-sort ALL ids by boosted score
-        new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores[x], reverse=True)
+        new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores.get(x, 0), reverse=True)
         return new_sorted_ids, boosted_scores
 
-    def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None) -> list:
-        """Internal fast grep for literal string matches in indexed files."""
+    def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None, collection=None) -> list:
+        """[v0.8.0] Chroma-Native literal search. Zero disk I/O.
+        
+        Uses `where_document={"$contains": query}` to search the full content
+        already stored in ChromaDB, without reading any file from disk.
+        Falls back to disk grep if `collection` is None.
+        """
         matches = []
-        indices_dir, hashes_path = self._get_paths(project_path)
-        known_files = self._load_hashes(hashes_path)
-        
-        query_text_lower = query_text.lower()
-        
-        # 1. Local Files
-        for filepath in known_files:
-            if not self._matches_file_pattern(filepath, project_path, file_pattern):
-                continue
-            
-            try:
-                if not os.path.exists(filepath): continue
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    if query_text_lower in content.lower():
-                        match_line = next(
-                            (i + 1 for i, l in enumerate(content.splitlines()) if query_text_lower in l.lower()),
-                            0
-                        )
-                        matches.append({"id": filepath, "remote": False, "line": match_line})
-            except Exception: continue
-            
-        # 2. Remote Files (Search in cached snippets)
+
+        if collection is None:
+            # Fallback: legacy disk grep (safety net if Chroma unavailable)
+            indices_dir, hashes_path = self._get_paths(project_path)
+            known_files = self._load_hashes(hashes_path)
+            query_text_lower = query_text.lower()
+            for filepath in known_files:
+                if not self._matches_file_pattern(filepath, project_path, file_pattern): continue
+                try:
+                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                        if query_text_lower in content.lower():
+                            matches.append({"id": filepath, "remote": False, "line": 0})
+                except Exception: continue
+            return matches
+
+        # [v0.8.0] Primary path: search stored documents in ChromaDB
         try:
-            client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-            collection = client.get_collection(name="project_context")
-            # We query for all remote entries (this is a bit heavy but Chroma is fast)
-            remote_results = collection.get(where={"remote": True}, include=["documents", "metadatas"])
-            
-            for doc, meta, rid in zip(remote_results["documents"], remote_results["metadatas"], remote_results["ids"]):
-                path = meta["path"]
+            # $contains is case-sensitive in Chroma, so we search both cases
+            # For identifiers this is fine; for case-insensitive we compound with $or
+            res = collection.get(
+                where_document={"$contains": query_text},
+                include=["metadatas"]
+            )
+            for mid, meta in zip(res["ids"], res["metadatas"]):
+                path = meta.get("path", mid)
+                is_remote = meta.get("remote", False)
                 if file_pattern and not self._matches_file_pattern(path, project_path, file_pattern):
                     continue
-                if query_text_lower in doc.lower():
-                    matches.append({"id": rid, "remote": True, "meta": meta, "snippet": doc})
-        except: pass
-        
+                matches.append({"id": mid, "remote": is_remote, "line": 0})
+        except Exception as e:
+            sys.stderr.write(f"[Indexer] where_document search failed: {e}\n")
+
         return matches
 
 
@@ -711,14 +667,16 @@ class Indexer:
         # Local paths
         all_paths = [(p, False, None) for p in known_hashes.keys()]
         
-        # Remote paths from vector store
+        # [v0.7.0] Single, shared Chroma client for the entire query lifetime
+        collection = None
         try:
             client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
             collection = client.get_collection(name="project_context")
             remotes = collection.get(where={"remote": True}, include=["metadatas"])
             for meta, rid in zip(remotes["metadatas"], remotes["ids"]):
                 all_paths.append((meta["path"], True, rid))
-        except: pass
+        except Exception:
+            pass
 
         for path, is_remote, rid in all_paths:
             filename = os.path.basename(path)
@@ -746,50 +704,60 @@ class Indexer:
         # 2. Hybrid Search: Literal (Grep) vs Semantic (Vector)
         vector_results = []
         if query_type == 'literal':
-            literal_results = self._grep_search(project_path, query_text, file_pattern)
+            literal_results = self._grep_search(project_path, query_text, file_pattern, collection=collection)
             try:
-                client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-                collection = client.get_collection(name="project_context")
-                v_res = collection.query(query_texts=[query_text], n_results=n_results * 5)
-                ids = v_res.get("ids", [[]])[0]
-                for vid in ids:
-                    if not self._matches_file_pattern(vid, project_path, file_pattern):
-                        continue
-                    vector_results.append({"id": vid})
+                if collection:
+                    v_res = collection.query(query_texts=[query_text], n_results=n_results * 5)
+                    ids = v_res.get("ids", [[]])[0]
+                    for vid in ids:
+                        if not self._matches_file_pattern(vid, project_path, file_pattern):
+                            continue
+                        vector_results.append({"id": vid})
             except Exception:
                 pass
             for match in literal_results:
                 existing = next((f for f in filename_matches if f["id"] == match["id"]), None)
                 if existing:
-                    existing["score"] += 15
+                    existing["score"] += 1.0
                 else:
-                    filename_matches.append({"id": match["id"], "score": 8, "remote": match.get("remote", False)})
+                    filename_matches.append({"id": match["id"], "score": 0.8, "remote": match.get("remote", False)})
         else:
             try:
-                client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-                collection = client.get_collection(name="project_context")
-                v_res = collection.query(query_texts=[query_text], n_results=n_results * 10)
-                ids = v_res.get("ids", [[]])[0]
-                for vid in ids:
-                    if not self._matches_file_pattern(vid, project_path, file_pattern):
-                        continue
-                    vector_results.append({"id": vid})
+                if collection:
+                    v_res = collection.query(query_texts=[query_text], n_results=n_results * 10)
+                    ids = v_res.get("ids", [[]])[0]
+                    for vid in ids:
+                        if not self._matches_file_pattern(vid, project_path, file_pattern):
+                            continue
+                        vector_results.append({"id": vid})
             except Exception:
                 pass
-            literal_results = self._grep_search(project_path, query_text, file_pattern)
+            literal_results = self._grep_search(project_path, query_text, file_pattern, collection=collection)
             for match in literal_results:
                 if not any(v["id"] == match["id"] for v in vector_results):
                     filename_matches.append({"id": match["id"], "score": 3, "remote": match.get("remote", False)})
 
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
+        
+        # [v0.7.0] V3 RAM-BASED SCORING: Pre-fetch metadatas for top 30 candidates
+        metadatas_lookup = {}
+        if final_ids and collection:
+            try:
+                boost_candidates = final_ids[:30]
+                meta_res = collection.get(ids=boost_candidates, include=["metadatas"])
+                metadatas_lookup = {mid: meta for mid, meta in zip(meta_res["ids"], meta_res["metadatas"])}
+            except Exception as e:
+                sys.stderr.write(f"[Indexer] Warning: Could not pre-fetch metadatas: {e}\n")
+
         identifiers = self._extract_identifiers(query_text)
         if identifiers:
-            final_ids, rrf_scores = self._word_boost(final_ids, rrf_scores, identifiers)
-            final_ids, rrf_scores = self._declaration_boost(final_ids, rrf_scores, identifiers)
+            final_ids, rrf_scores = self._word_boost(final_ids, rrf_scores, identifiers, metadatas_lookup)
+            final_ids, rrf_scores = self._declaration_boost(final_ids, rrf_scores, identifiers, metadatas_lookup)
+            
         if query_type == 'conceptual':
             keywords = self._extract_keywords(query_text)
-            final_ids, rrf_scores = self._rerank_results(final_ids, rrf_scores, keywords)
+            final_ids, rrf_scores = self._rerank_results(final_ids, rrf_scores, keywords, metadatas_lookup)
 
         # 4. Filter & Build Final Response
         res_ids = []
@@ -805,9 +773,8 @@ class Indexer:
                 content = ""
                 is_boosted = any(f["id"] == doc_id for f in filename_matches)
                 
-                # Prepare Chroma Client once if needed
-                _chroma_client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-                _chroma_col = _chroma_client.get_collection(name="project_context")
+                # Reuse the shared collection handle
+                _chroma_col = collection
 
                 if not is_remote:
                     # LOCAL FILE
