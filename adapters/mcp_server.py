@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import os
+import json
 from mcp.server import Server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 import mcp.types as types
@@ -218,7 +219,28 @@ def create_mcp_server():
                 flags.append("PRIORITY")
 
             flags_str = "|".join(flags) if flags else "-"
-            location = f"L{line_num}" if line_num > 0 else "-"
+            
+            # Resolve Location (Symbol-aware)
+            location = "-"
+            if line_num > 0:
+                location = f"L{line_num}"
+            else:
+                # Try line_map from AST (v4.0 Phase A.B)
+                line_map_raw = meta.get("line_map", "{}")
+                try:
+                    line_map = json.loads(line_map_raw)
+                    # Search for query tokens in map (e.g. "index_project" -> L244)
+                    for token in query.replace("(", " ").replace(")", " ").replace(".", " ").split():
+                        if token.lower() in [k.lower() for k in line_map.keys()]:
+                            # Find exact key to get correct case match
+                            for k, v in line_map.items():
+                                if k.lower() == token.lower():
+                                    location = f"L{v}"
+                                    break
+                            if location != "-": break
+                except Exception:
+                    pass
+            
             snippet_len = min(len(doc), 600)
             lines.append(f"{rel_path}\tcode\t{flags_str}\t{location}\t{snippet_len}")
 

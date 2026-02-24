@@ -250,11 +250,12 @@ class Indexer:
                 try:
                     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
-                    skeleton = self.skeletonizer.skeletonize(content)
+                    skeleton, line_map = self.skeletonizer.skeletonize(content)
                     docs_buf.append(content)
                     metas_buf.append({
                         "path": filepath,
                         "skeleton": skeleton,
+                        "line_map": json.dumps(line_map),   # {"real_function": 3, ...}
                         "type": "code",
                         "ident_bag": " ".join(self._extract_identifiers(content))
                     })
