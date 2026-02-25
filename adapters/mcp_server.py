@@ -351,9 +351,8 @@ def create_mcp_server():
                 file_pattern = arguments.get("file_pattern")
                 auto_usages = arguments.get("auto_usages", False)
 
-                q1_start = time.time()
                 results = indexer.query(project_path, query, file_pattern=file_pattern)
-                q1_duration = time.time() - q1_start
+                q1_duration = time.time() - start_time
 
                 documents = results.get("documents", [[]])[0]
                 metadatas = results.get("metadatas", [[]])[0]

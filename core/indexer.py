@@ -54,6 +54,10 @@ class Indexer:
         # It calculates paths based on the project being indexed.
         self.skeletonizer = Skeletonizer()
         
+        # [v4.0 Phase B] Optimización de latencia: Caché de clientes ChromaDB
+        # Para evitar re-inicializar sqlite3 en cada búsqueda, guardamos el cliente y colección por proyecto.
+        self._chroma_clients = {}
+        
         # Standard noise patterns (Explicit Blacklist)
         self.IGNORED_PATTERNS = [
             "*.min.js", "*.min.css", "*.map",
@@ -63,6 +67,27 @@ class Indexer:
             "*.exe", "*.dll", "*.so", "*.dylib", "*.bin",
             "*.pyc", "*.pyo"
         ]
+
+    def _get_chroma_collection(self, project_path: str, indices_dir: str = None):
+        """Devuelve una colección de ChromaDB cacheadada por proyecto para evitar los ~900ms de overhead."""
+        if project_path in self._chroma_clients:
+            return self._chroma_clients[project_path]["collection"]
+            
+        if not indices_dir:
+            indices_dir, _ = self._get_paths(project_path)
+            
+        try:
+            client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
+            collection = client.get_or_create_collection(name="project_context")
+            # [v4.0 Phase B Fix] Cacheamos tanto el cliente como la colección para evitar que el cliente sea GC'd
+            self._chroma_clients[project_path] = {
+                "client": client,
+                "collection": collection
+            }
+            return collection
+        except Exception as e:
+            sys.stderr.write(f"[Indexer] Error inicializando ChromaDB para {project_path}: {e}\n")
+            return None
 
     def _get_ace_path(self, project_path: str) -> str:
         return os.path.join(project_path, ".ace")
@@ -150,8 +175,9 @@ class Indexer:
         indices_dir, hashes_path = self._get_paths(project_path)
         
         # Initialize Chroma for this project (Stored locally in .ace/indices)
-        client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-        collection = client.get_or_create_collection(name="project_context")
+        collection = self._get_chroma_collection(project_path, indices_dir)
+        if not collection: 
+            return {"indexed": 0, "deleted": 0, "duration_seconds": 0.0, "error": "ChromaDB Init Failed"}
 
         known_hashes = self._load_hashes(hashes_path)
         new_hashes = {}
@@ -279,8 +305,8 @@ class Indexer:
         sys.stderr.write(f"[Indexer] Indexing remote data for env: {remote_data.get('env_name')}\n")
         
         indices_dir, _ = self._get_paths(project_path)
-        client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-        collection = client.get_or_create_collection(name="project_context")
+        collection = self._get_chroma_collection(project_path, indices_dir)
+        if not collection: return
         
         env_name = remote_data.get("env_name", "remote")
         files = remote_data.get("files", [])
@@ -680,6 +706,9 @@ class Indexer:
         return False
 
     def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None):
+        import time
+        t_start = time.time()
+        
         indices_dir, hashes_path = self._get_paths(project_path)
         
         # [Fase A: Auto-Index]
@@ -703,13 +732,13 @@ class Indexer:
         all_paths = [(p, False, None) for p in known_hashes.keys()]
         
         # [v0.7.0] Single, shared Chroma client for the entire query lifetime
-        collection = None
+        # [v4.0 Phase B] Cached in RAM to save ~900ms
+        collection = self._get_chroma_collection(project_path, indices_dir)
         try:
-            client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-            collection = client.get_collection(name="project_context")
-            remotes = collection.get(where={"remote": True}, include=["metadatas"])
-            for meta, rid in zip(remotes["metadatas"], remotes["ids"]):
-                all_paths.append((meta["path"], True, rid))
+            if collection:
+                remotes = collection.get(where={"remote": True}, include=["metadatas"])
+                for meta, rid in zip(remotes["metadatas"], remotes["ids"]):
+                    all_paths.append((meta["path"], True, rid))
         except Exception:
             pass
 
@@ -772,6 +801,9 @@ class Indexer:
                 if not any(v["id"] == match["id"] for v in vector_results):
                     filename_matches.append({"id": match["id"], "score": 3, "remote": match.get("remote", False)})
 
+        t_queries = time.time() - t_start
+        t_scoring_start = time.time()
+
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
         
@@ -793,6 +825,9 @@ class Indexer:
         if query_type == 'conceptual':
             keywords = self._extract_keywords(query_text)
             final_ids, rrf_scores = self._rerank_results(final_ids, rrf_scores, keywords, metadatas_lookup)
+
+        t_scoring = time.time() - t_scoring_start
+        t_disk_start = time.time()
 
         # 4. Filter & Build Final Response
         res_ids = []
@@ -877,6 +912,9 @@ class Indexer:
             except Exception as e:
                 sys.stderr.write(f"Error processing result {doc_id}: {e}\n")
                 continue
+
+        t_disk = time.time() - t_disk_start
+        sys.stderr.write(f"\n[QUERY PROFILE] Total {time.time()-t_start:.3f}s | DB Queries: {t_queries:.3f}s | Scoring: {t_scoring:.3f}s | Disk/Build: {t_disk:.3f}s\n")
 
 
         if not res_ids:
