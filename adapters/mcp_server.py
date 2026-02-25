@@ -343,21 +343,30 @@ def create_mcp_server():
             
             elif name == "ace_search_code_compact":
                 import re
+                import time
+                start_time = time.time()
+
                 query = arguments.get("query")
                 project_path = resolve_project_path(arguments)
                 file_pattern = arguments.get("file_pattern")
                 auto_usages = arguments.get("auto_usages", False)
 
+                q1_start = time.time()
                 results = indexer.query(project_path, query, file_pattern=file_pattern)
+                q1_duration = time.time() - q1_start
 
                 documents = results.get("documents", [[]])[0]
                 metadatas = results.get("metadatas", [[]])[0]
 
                 if not documents:
-                    return [types.TextContent(type="text", text=f"[COMPACT] 0 results for: '{query}'. Try ace_search_code for hints.")]
+                    total_time = time.time() - start_time
+                    return [types.TextContent(type="text", text=f"[COMPACT] 0 results for: '{query}'. Try ace_search_code for hints. [TIME: {total_time:.2f}s]")]
 
+                fmt1_start = time.time()
                 output = _format_compact(documents, metadatas, query, project_path)
+                fmt1_duration = time.time() - fmt1_start
 
+                usg_duration = 0.0
                 # Efecto Dominó: buscar usos del símbolo principal
                 if auto_usages and documents:
                     sym_match = re.search(
@@ -366,12 +375,18 @@ def create_mcp_server():
                     )
                     if sym_match:
                         symbol = sym_match.group(1)
+                        q2_start = time.time()
                         usg_results = indexer.query(project_path, symbol)
                         usg_docs = usg_results.get("documents", [[]])[0]
                         usg_metas = usg_results.get("metadatas", [[]])[0]
                         if usg_docs:
                             usg_block = _format_compact(usg_docs, usg_metas, symbol, project_path, is_usage_block=True)
                             output += "\n\n" + usg_block
+                        usg_duration = time.time() - q2_start
+
+                total_duration = time.time() - start_time
+                debug_info = f"\n[DEBUG TIMEOUT] Total: {total_duration:.2f}s | Initial Query: {q1_duration:.2f}s | TSV Formatting: {fmt1_duration:.2f}s | Auto-Usages Query: {usg_duration:.2f}s"
+                output = output + "\n" + debug_info
 
                 return [types.TextContent(type="text", text=output)]
 
