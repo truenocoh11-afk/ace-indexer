@@ -68,7 +68,7 @@ def create_mcp_server():
                         "query": {"type": "string", "description": "The search query"},
                         "project_path": {"type": "string", "description": "Absolute path (optional)"},
                         "file_pattern": {"type": "string", "description": "Optional glob pattern"},
-                        "auto_usages": {"type": "boolean", "description": "If true, finds usages of the top-matched symbol automatically."}
+                        "auto_usages": {"type": "boolean", "description": "RECOMENDADO para refactorizaciones o investigación de impacto. Actívalo si necesitas ver dónde se usa el símbolo encontrado para evitar segundas consultas."}
                     },
                     "required": ["query"]
                 }
