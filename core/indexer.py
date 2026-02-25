@@ -178,6 +178,9 @@ class Indexer:
         collection = self._get_chroma_collection(project_path, indices_dir)
         if not collection: 
             return {"indexed": 0, "deleted": 0, "duration_seconds": 0.0, "error": "ChromaDB Init Failed"}
+            
+        # [v4.0 Phase B Fix] Restauramos el objeto client para usarlo en batching dinámico
+        client = self._chroma_clients[project_path]["client"]
 
         known_hashes = self._load_hashes(hashes_path)
         new_hashes = {}
