@@ -40,6 +40,19 @@ def create_mcp_server():
         state["last_project_path"] = cwd
         return cwd
 
+    def resolve_project_path_strict(arguments: dict) -> str:
+        """Para herramientas de ESCRITURA. Falla si no hay project_path explícito o en sesión."""
+        path = arguments.get("project_path")
+        if path:
+            state["last_project_path"] = path
+            return path
+        if state["last_project_path"]:
+            return state["last_project_path"]
+        raise ValueError(
+            "[ACE ERROR] project_path es requerido para operaciones de escritura. "
+            "Pasa project_path='C:\\\\ruta\\\\absoluta\\\\al\\\\proyecto' explícitamente."
+        )
+
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
         return [
@@ -413,7 +426,7 @@ def create_mcp_server():
                 return [types.TextContent(type="text", text=f"Indexed files ({len(files)}):\n{file_list}")]
 
             elif name == "ace_index_project":
-                project_path = resolve_project_path(arguments)
+                project_path = resolve_project_path_strict(arguments)
                 force = arguments.get("force", False)
                 extra_ignore_dirs = arguments.get("extra_ignore_dirs")
                 stats = indexer.index_project(project_path, force=force, extra_ignore_dirs=extra_ignore_dirs)
@@ -421,7 +434,7 @@ def create_mcp_server():
 
             elif name == "ace_boot_memory":
                 from core.memory import MemoryManager
-                project_path = resolve_project_path(arguments)
+                project_path = resolve_project_path_strict(arguments)
                 manager = MemoryManager(project_path)
                 content = manager.read("all")
                 return [types.TextContent(type="text", text=content)]
@@ -429,7 +442,7 @@ def create_mcp_server():
             elif name == "ace_update_memory":
                 # ... [omitted identical logic] ...
                 from core.memory import MemoryManager
-                project_path = resolve_project_path(arguments)
+                project_path = resolve_project_path_strict(arguments)
                 memory_type = arguments.get("memory_type")
                 content = arguments.get("content")
                 append = arguments.get("append", True) # Default to True
