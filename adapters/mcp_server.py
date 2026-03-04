@@ -81,7 +81,8 @@ def create_mcp_server():
                         "query": {"type": "string", "description": "The search query"},
                         "project_path": {"type": "string", "description": "Absolute path (optional)"},
                         "file_pattern": {"type": "string", "description": "Optional glob pattern"},
-                        "auto_usages": {"type": "boolean", "description": "RECOMENDADO para refactorizaciones o investigación de impacto. Actívalo si necesitas ver dónde se usa el símbolo encontrado para evitar segundas consultas."}
+                        "auto_usages": {"type": "boolean", "description": "RECOMENDADO para refactorizaciones o investigación de impacto. Actívalo si necesitas ver dónde se usa el símbolo encontrado para evitar segundas consultas."},
+                        "workspace_only": {"type": "boolean", "description": "Default True. Set False to include remote/synced files in results."}
                     },
                     "required": ["query"]
                 }
@@ -207,11 +208,11 @@ def create_mcp_server():
         import os
         lines = []
         if not is_usage_block:
-            lines.append(f"[SEARCH: {query}] [RESULTS: {len(documents)}]")
+            lines.append(f"[FORMAT v1.1] [SEARCH: {query}] [RESULTS: {len(documents)}]")
         else:
             lines.append(f"[DOMINO: USAGES FOR '{query}'] [RESULTS: {len(documents)}]")
 
-        lines.append("FILE\tTYPE\tFLAGS\tLOCATION\tSNIPPET_CHARS")
+        lines.append("FILE\tTYPE\tFLAGS\tCONF\tLOCATION\tSNIPPET_CHARS")
 
         for doc, meta in zip(documents, metadatas):
             path = meta.get("path", "unknown")
@@ -241,7 +242,7 @@ def create_mcp_server():
                 # Try line_map from AST (v4.0 Phase A.B)
                 line_map_raw = meta.get("line_map", "{}")
                 try:
-                    line_map = json.loads(line_map_raw)
+                    line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else (line_map_raw or {})
                     # Search for query tokens in map (e.g. "index_project" -> L244)
                     for token in query.replace("(", " ").replace(")", " ").replace(".", " ").split():
                         if token.lower() in [k.lower() for k in line_map.keys()]:
@@ -254,8 +255,11 @@ def create_mcp_server():
                 except Exception:
                     pass
             
+            rrf_score = meta.get("rrf_score", 0)
+            literal = meta.get("literal_match", False)
+            conf = "HIGH" if literal and rrf_score > 0.7 else ("MED" if literal or rrf_score > 0.4 else "LOW")
             snippet_len = min(len(doc), 600)
-            lines.append(f"{rel_path}\tcode\t{flags_str}\t{location}\t{snippet_len}")
+            lines.append(f"{rel_path}\tcode\t{flags_str}\t{conf}\t{location}\t{snippet_len}")
 
         lines.append("")
         lines.append("===SOURCES===")
@@ -363,8 +367,9 @@ def create_mcp_server():
                 project_path = resolve_project_path(arguments)
                 file_pattern = arguments.get("file_pattern")
                 auto_usages = arguments.get("auto_usages", False)
+                workspace_only = arguments.get("workspace_only", True)
 
-                results = indexer.query(project_path, query, file_pattern=file_pattern)
+                results = indexer.query(project_path, query, file_pattern=file_pattern, workspace_only=workspace_only)
                 q1_duration = time.time() - start_time
 
                 documents = results.get("documents", [[]])[0]
@@ -372,23 +377,58 @@ def create_mcp_server():
 
                 if not documents:
                     total_time = time.time() - start_time
-                    return [types.TextContent(type="text", text=f"[COMPACT] 0 results for: '{query}'. Try ace_search_code for hints. [TIME: {total_time:.2f}s]")]
+                    hints = [f"[COMPACT] 0 results for: '{query}'"]
+                    if any(c in query for c in "().'\""):
+                        hints.append("💡 Try conceptual: describe what the code does instead of pasting syntax")
+                    if "_" in query and len(query.split()) == 1:
+                        parts = query.split("_")
+                        hints.append(f"💡 Try broader: '{' '.join(parts)}'")
+                    elif len(query.split()) == 1:
+                        hints.append(f"💡 Try: 'where is {query} defined' or file_pattern='*.py'")
+                    try:
+                        status = indexer.get_index_status(project_path)
+                        if status.get("status") == "ok":
+                            hints.append(f"📊 INDEX: {status['indexed_files_count']} files")
+                            if status.get("missing_from_index_count", 0) > 0:
+                                hints.append(f"⚠️ {status['missing_from_index_count']} unindexed files. Run ace_index_project(force=True)")
+                    except Exception:
+                        pass
+                    hints.append(f"[TIME: {total_time:.2f}s]")
+                    return [types.TextContent(type="text", text="\n".join(hints))]
 
                 fmt1_start = time.time()
                 output = _format_compact(documents, metadatas, query, project_path)
                 fmt1_duration = time.time() - fmt1_start
 
                 usg_duration = 0.0
-                # Efecto Dominó: buscar usos del símbolo principal
                 if auto_usages and documents:
-                    sym_match = re.search(
-                        r'(?:function|class|def|const|let|var|export function)\s+([a-zA-Z0-9_]+)',
-                        documents[0]
-                    )
-                    if sym_match:
-                        symbol = sym_match.group(1)
+                    symbol = None
+                    line_map_raw = metadatas[0].get("line_map", "{}") if metadatas else "{}"
+                    try:
+                        line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else (line_map_raw or {})
+                    except Exception:
+                        line_map = {}
+                    query_tokens = re.split(r'[\s_.()\[\]]+', query.lower())
+                    for token in query_tokens:
+                        if len(token) < 3:
+                            continue
+                        for key in line_map:
+                            if token in key.lower():
+                                symbol = key
+                                break
+                        if symbol:
+                            break
+                    if not symbol:
+                        skeleton = metadatas[0].get("skeleton", "") if metadatas else ""
+                        sk_match = re.search(
+                            r'(?:function|class|def|const|let|var|export function)\s+([a-zA-Z0-9_]+)',
+                            skeleton
+                        )
+                        if sk_match:
+                            symbol = sk_match.group(1)
+                    if symbol and symbol.lower() != query.lower():
                         q2_start = time.time()
-                        usg_results = indexer.query(project_path, symbol)
+                        usg_results = indexer.query(project_path, symbol, workspace_only=workspace_only)
                         usg_docs = usg_results.get("documents", [[]])[0]
                         usg_metas = usg_results.get("metadatas", [[]])[0]
                         if usg_docs:
@@ -397,7 +437,10 @@ def create_mcp_server():
                         usg_duration = time.time() - q2_start
 
                 total_duration = time.time() - start_time
-                debug_info = f"\n[DEBUG TIMEOUT] Total: {total_duration:.2f}s | Initial Query: {q1_duration:.2f}s | TSV Formatting: {fmt1_duration:.2f}s | Auto-Usages Query: {usg_duration:.2f}s"
+                output_chars = len(output)
+                full_estimate = int(output_chars * 2.5)
+                savings_pct = max(0, int((1 - output_chars / max(full_estimate, 1)) * 100))
+                debug_info = f"\n[DEBUG] Time: {total_duration:.2f}s | Q1: {q1_duration:.2f}s | Fmt: {fmt1_duration:.2f}s | Usages: {usg_duration:.2f}s | Out: {output_chars}ch (~{output_chars//4}tok) | ~{savings_pct}% saved"
                 output = output + "\n" + debug_info
 
                 return [types.TextContent(type="text", text=output)]

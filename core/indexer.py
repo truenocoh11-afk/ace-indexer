@@ -67,6 +67,13 @@ class Indexer:
             "*.exe", "*.dll", "*.so", "*.dylib", "*.bin",
             "*.pyc", "*.pyo"
         ]
+        self.NOISE_PATH_PATTERNS = [
+            r'[\\/]data[\\/]hashes[\\/]',
+            r'[\\/]data[\\/]cache[\\/]',
+            r'[\\/]backup[s]?[\\/]',
+            r'[\\/]legacy[\\/]',
+            r'\.(bak|old|orig)$',
+        ]
 
     def _get_chroma_collection(self, project_path: str, indices_dir: str = None):
         """Devuelve una colección de ChromaDB cacheadada por proyecto para evitar los ~900ms de overhead."""
@@ -283,6 +290,7 @@ class Indexer:
                     docs_buf.append(content)
                     metas_buf.append({
                         "path": filepath,
+                        "remote": False,
                         "skeleton": skeleton,
                         "line_map": json.dumps(line_map),   # {"real_function": 3, ...}
                         "type": "code",
@@ -532,6 +540,16 @@ class Indexer:
         new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores.get(x, 0), reverse=True)
         return new_sorted_ids, boosted_scores
 
+    def _path_penalty(self, filepath: str, is_remote: bool = False, workspace_only: bool = True) -> float:
+        penalty = 0.0
+        for pattern in self.NOISE_PATH_PATTERNS:
+            if re.search(pattern, filepath, re.IGNORECASE):
+                penalty -= 0.3
+                break
+        if is_remote and workspace_only:
+            penalty -= 0.15
+        return penalty
+
     def _extract_identifiers(self, query: str) -> list:
         """Extract code identifiers from query (camelCase, snake_case, PascalCase)."""
         # Patterns for common code identifier styles (without word boundaries for better matching)
@@ -643,7 +661,7 @@ class Indexer:
         new_sorted_ids = sorted(final_ids, key=lambda x: boosted_scores.get(x, 0), reverse=True)
         return new_sorted_ids, boosted_scores
 
-    def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None, collection=None) -> list:
+    def _grep_search(self, project_path: str, query_text: str, file_pattern: str = None, collection=None, workspace_only: bool = True) -> list:
         """[v0.8.0] Chroma-Native literal search. Zero disk I/O.
         
         Uses `where_document={"$contains": query}` to search the full content
@@ -671,8 +689,10 @@ class Indexer:
         try:
             # $contains is case-sensitive in Chroma, so we search both cases
             # For identifiers this is fine; for case-insensitive we compound with $or
+            where_meta = {"remote": False} if workspace_only else None
             res = collection.get(
                 where_document={"$contains": query_text},
+                where=where_meta,
                 include=["metadatas"]
             )
             for mid, meta in zip(res["ids"], res["metadatas"]):
@@ -708,7 +728,7 @@ class Indexer:
             
         return False
 
-    def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None):
+    def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None, workspace_only: bool = True):
         import time
         t_start = time.time()
         
@@ -737,13 +757,14 @@ class Indexer:
         # [v0.7.0] Single, shared Chroma client for the entire query lifetime
         # [v4.0 Phase B] Cached in RAM to save ~900ms
         collection = self._get_chroma_collection(project_path, indices_dir)
-        try:
-            if collection:
-                remotes = collection.get(where={"remote": True}, include=["metadatas"])
-                for meta, rid in zip(remotes["metadatas"], remotes["ids"]):
-                    all_paths.append((meta["path"], True, rid))
-        except Exception:
-            pass
+        if not workspace_only:
+            try:
+                if collection:
+                    remotes = collection.get(where={"remote": True}, include=["metadatas"])
+                    for meta, rid in zip(remotes["metadatas"], remotes["ids"]):
+                        all_paths.append((meta["path"], True, rid))
+            except Exception:
+                pass
 
         for path, is_remote, rid in all_paths:
             filename = os.path.basename(path)
@@ -771,10 +792,11 @@ class Indexer:
         # 2. Hybrid Search: Literal (Grep) vs Semantic (Vector)
         vector_results = []
         if query_type == 'literal':
-            literal_results = self._grep_search(project_path, query_text, file_pattern, collection=collection)
+            literal_results = self._grep_search(project_path, query_text, file_pattern, collection=collection, workspace_only=workspace_only)
             try:
                 if collection:
-                    v_res = collection.query(query_texts=[query_text], n_results=n_results * 5)
+                    where = {"remote": False} if workspace_only else None
+                    v_res = collection.query(query_texts=[query_text], n_results=n_results * 5, where=where)
                     ids = v_res.get("ids", [[]])[0]
                     for vid in ids:
                         if not self._matches_file_pattern(vid, project_path, file_pattern):
@@ -791,7 +813,8 @@ class Indexer:
         else:
             try:
                 if collection:
-                    v_res = collection.query(query_texts=[query_text], n_results=n_results * 10)
+                    where = {"remote": False} if workspace_only else None
+                    v_res = collection.query(query_texts=[query_text], n_results=n_results * 10, where=where)
                     ids = v_res.get("ids", [[]])[0]
                     for vid in ids:
                         if not self._matches_file_pattern(vid, project_path, file_pattern):
@@ -799,7 +822,7 @@ class Indexer:
                         vector_results.append({"id": vid})
             except Exception:
                 pass
-            literal_results = self._grep_search(project_path, query_text, file_pattern, collection=collection)
+            literal_results = self._grep_search(project_path, query_text, file_pattern, collection=collection, workspace_only=workspace_only)
             for match in literal_results:
                 if not any(v["id"] == match["id"] for v in vector_results):
                     filename_matches.append({"id": match["id"], "score": 3, "remote": match.get("remote", False)})
@@ -809,6 +832,10 @@ class Indexer:
 
         # 3. Fusion (Weighted RRF)
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
+        for fid in final_ids:
+            fm_item = next((f for f in filename_matches if f["id"] == fid), None)
+            is_remote = fm_item["remote"] if fm_item else fid.startswith("remote://")
+            rrf_scores[fid] = rrf_scores.get(fid, 0) + self._path_penalty(fid, is_remote, workspace_only)
         
         # [v0.7.0] V3 RAM-BASED SCORING: Pre-fetch metadatas for top 30 candidates
         metadatas_lookup = {}
@@ -860,9 +887,12 @@ class Indexer:
                     # [V3: Recover skeleton from Chroma for semantic snippets]
                     try:
                         _sk_entry = _chroma_col.get(ids=[doc_id], include=["metadatas"])
-                        skeleton_text = _sk_entry["metadatas"][0].get("skeleton", "") if _sk_entry["metadatas"] else ""
+                        _sk_meta = _sk_entry["metadatas"][0] if _sk_entry["metadatas"] else {}
+                        skeleton_text = _sk_meta.get("skeleton", "")
+                        line_map_text = _sk_meta.get("line_map", "{}")
                     except Exception:
                         skeleton_text = ""
+                        line_map_text = "{}"
                 else:
                     # REMOTE FILE (Load from Chroma)
                     try:
@@ -872,6 +902,7 @@ class Indexer:
                         display_path = remote_entry["metadatas"][0]["path"]
                         env_name = remote_entry["metadatas"][0]["env"]
                         skeleton_text = ""
+                        line_map_text = "{}"
                     except Exception:
                         continue
 
@@ -909,7 +940,8 @@ class Indexer:
                     "env": env_name,
                     "rrf_score": rrf_scores[doc_id],
                     "line": match_line,
-                    "skeleton": skeleton_text
+                    "skeleton": skeleton_text,
+                    "line_map": line_map_text
                 })
                 res_docs.append(content)
             except Exception as e:
