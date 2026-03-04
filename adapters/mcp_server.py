@@ -434,6 +434,19 @@ def create_mcp_server():
                         if usg_docs:
                             usg_block = _format_compact(usg_docs, usg_metas, symbol, project_path, is_usage_block=True)
                             output += "\n\n" + usg_block
+                        elif not usg_docs:
+                             # [V2-D] Fallback: Co-located symbols
+                            line_map_raw = metadatas[0].get("line_map", "{}") if metadatas else "{}"
+                            try:
+                                line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else (line_map_raw or {})
+                                if line_map:
+                                    # Sort by line number
+                                    sorted_syms = sorted(line_map.items(), key=lambda x: x[1])
+                                    # Take up to 8 symbols
+                                    co_symbols = ", ".join(f"{k}:L{v}" for k, v in sorted_syms[:8])
+                                    output += f"\n\n[DOMINO: NO USAGES FOUND] -> Co-located symbols in {metadatas[0].get('path','?')}:\n📎 {co_symbols}"
+                            except Exception:
+                                pass
                         usg_duration = time.time() - q2_start
 
                 total_duration = time.time() - start_time

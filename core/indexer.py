@@ -533,7 +533,12 @@ class Indexer:
                 ident_bag = metadatas_lookup.get(filepath, {}).get("ident_bag", "").lower()
                 
                 hits = sum(1 for kw in query_keywords if kw.lower() in ident_bag)
-                boosted_scores[filepath] += (hits * 0.1)
+                # [V2-C] Amplified boost (0.1 -> 0.25) + Name Penalty
+                boosted_scores[filepath] += (hits * 0.25)
+                
+                basename = os.path.basename(filepath).lower()
+                if any(basename.startswith(p) for p in ('temp_', 'debug_', 'test_', 'old_', 'bak_')):
+                    boosted_scores[filepath] -= 0.2
             except Exception:
                 continue
         
@@ -831,7 +836,9 @@ class Indexer:
         t_scoring_start = time.time()
 
         # 3. Fusion (Weighted RRF)
-        final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=50.0, w_vec=1.0)
+        # [V2-A] Adaptive RRF weights based on query classification
+        w_file, w_vec = (50.0, 1.0) if query_type == 'literal' else (3.0, 5.0)
+        final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=w_file, w_vec=w_vec)
         for fid in final_ids:
             fm_item = next((f for f in filename_matches if f["id"] == fid), None)
             is_remote = fm_item["remote"] if fm_item else fid.startswith("remote://")
