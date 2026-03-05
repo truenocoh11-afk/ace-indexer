@@ -454,7 +454,7 @@ class Indexer:
 
     def _classify_query(self, query: str) -> str:
         """
-        Returns: 'literal' | 'conceptual'
+        Returns: 'literal' | 'conceptual' | 'symbol'
         """
         # [v0.3.1] Check EACH WORD in query for code patterns
         words = query.split()
@@ -463,6 +463,7 @@ class Indexer:
         word_patterns = [
             r'^[a-z]+[A-Z]',           # camelCase: lastAgentStats
             r'^[A-Z][a-z]+[A-Z]',      # PascalCase: UserService
+            r'^[A-Z][a-z]+$',          # PascalCase simple: Indexer
             r'[a-z]_[a-z]',            # snake_case: user_id
             r'^[A-Z][A-Z0-9_]+$',      # CONSTANTE: MAX_RETRIES
         ]
@@ -470,7 +471,7 @@ class Indexer:
         for word in words:
             for p in word_patterns:
                 if re.search(p, word):
-                    return 'literal'
+                    return 'symbol'
         
         # Global patterns (applied to full query)
         global_patterns = [
@@ -488,7 +489,7 @@ class Indexer:
         if len(words) > 3:
             return 'conceptual'
         
-        # Default to literal for short phrases that might be code
+        # Default to literal for short phrases that might be code (or symbols without patterns)
         return 'literal'
 
     def _matches_file_pattern(self, filepath: str, project_path: str, file_pattern: str) -> bool:
@@ -837,12 +838,20 @@ class Indexer:
 
         # 3. Fusion (Weighted RRF)
         # [V2-A] Adaptive RRF weights based on query classification
-        w_file, w_vec = (50.0, 1.0) if query_type == 'literal' else (3.0, 5.0)
+        if query_type == 'literal':
+            w_file, w_vec = 50.0, 1.0
+        elif query_type == 'symbol':
+            w_file, w_vec = 10.0, 5.0  # [V3-A] Balanced weights for code symbols
+        else:
+            w_file, w_vec = 3.0, 5.0
+            
         final_ids, rrf_scores = self._weighted_rrf(filename_matches, vector_results, w_file=w_file, w_vec=w_vec)
+        
+        # [v1.1.0] Apply path-based penalties
         for fid in final_ids:
             fm_item = next((f for f in filename_matches if f["id"] == fid), None)
-            is_remote = fm_item["remote"] if fm_item else fid.startswith("remote://")
-            rrf_scores[fid] = rrf_scores.get(fid, 0) + self._path_penalty(fid, is_remote, workspace_only)
+            is_rem = fm_item["remote"] if fm_item else fid.startswith("remote://")
+            rrf_scores[fid] = rrf_scores.get(fid, 0) + self._path_penalty(fid, is_rem, workspace_only)
         
         # [v0.7.0] V3 RAM-BASED SCORING: Pre-fetch metadatas for top 30 candidates
         metadatas_lookup = {}
@@ -858,6 +867,14 @@ class Indexer:
         if identifiers:
             final_ids, rrf_scores = self._word_boost(final_ids, rrf_scores, identifiers, metadatas_lookup)
             final_ids, rrf_scores = self._declaration_boost(final_ids, rrf_scores, identifiers, metadatas_lookup)
+            
+        # [V3-B] Code Type Boost for Symbol Queries
+        # If query looks like a symbol, boost actual code files over docs
+        if query_type == 'symbol':
+             for fid in final_ids:
+                 ftype = metadatas_lookup.get(fid, {}).get("type", "unknown")
+                 if ftype == 'code':
+                     rrf_scores[fid] += 0.05
             
         if query_type == 'conceptual':
             keywords = self._extract_keywords(query_text)

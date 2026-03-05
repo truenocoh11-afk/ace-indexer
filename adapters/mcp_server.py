@@ -403,7 +403,17 @@ def create_mcp_server():
                 usg_duration = 0.0
                 if auto_usages and documents:
                     symbol = None
-                    line_map_raw = metadatas[0].get("line_map", "{}") if metadatas else "{}"
+                    # [v1.1.1] Prioritize code files for line_map extraction
+                    # Find first metadata that is 'code' or has valid line_map
+                    best_meta = None
+                    for m in metadatas:
+                        if m.get('type') == 'code':
+                            best_meta = m
+                            break
+                    if not best_meta and metadatas:
+                        best_meta = metadatas[0]
+                    
+                    line_map_raw = best_meta.get("line_map", "{}") if best_meta else "{}"
                     try:
                         line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else (line_map_raw or {})
                     except Exception:
@@ -419,7 +429,7 @@ def create_mcp_server():
                         if symbol:
                             break
                     if not symbol:
-                        skeleton = metadatas[0].get("skeleton", "") if metadatas else ""
+                        skeleton = best_meta.get("skeleton", "") if best_meta else ""
                         sk_match = re.search(
                             r'(?:function|class|def|const|let|var|export function)\s+([a-zA-Z0-9_]+)',
                             skeleton
