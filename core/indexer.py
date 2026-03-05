@@ -9,6 +9,21 @@ import sys
 import time
 from .skeletonizer import Skeletonizer
 
+# --- ChromaDB 0.4.22 Bug Workaround ---
+# In Python 3.12, sqlite3 might return an int for seq_id instead of bytes,
+# which causes `len(seq_id_bytes)` to throw `TypeError` inside `_decode_seq_id`.
+try:
+    import chromadb.segment.impl.metadata.sqlite
+    _old_decode = chromadb.segment.impl.metadata.sqlite._decode_seq_id
+    def _safe_decode_seq_id(seq_id_bytes):
+        if isinstance(seq_id_bytes, int):
+            seq_id_bytes = seq_id_bytes.to_bytes(8, 'little')
+        return _old_decode(seq_id_bytes)
+    chromadb.segment.impl.metadata.sqlite._decode_seq_id = _safe_decode_seq_id
+except Exception:
+    pass
+# ------------------------------------
+
 class GitignoreParser:
     """Simple parser for .gitignore patterns."""
     def __init__(self, root_path: str):
@@ -288,12 +303,13 @@ class Indexer:
                         content = f.read()
                     skeleton, line_map = self.skeletonizer.skeletonize(content)
                     docs_buf.append(content)
+                    is_doc = filepath.endswith((".md", ".txt", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".env"))
                     metas_buf.append({
                         "path": filepath,
                         "remote": False,
                         "skeleton": skeleton,
                         "line_map": json.dumps(line_map),   # {"real_function": 3, ...}
-                        "type": "code",
+                        "type": "doc" if is_doc else "code",
                         "ident_bag": " ".join(self._extract_identifiers(content))
                     })
                     ids_buf.append(filepath)
@@ -464,7 +480,8 @@ class Indexer:
             r'^[a-z]+[A-Z]',           # camelCase: lastAgentStats
             r'^[A-Z][a-z]+[A-Z]',      # PascalCase: UserService
             r'^[A-Z][a-z]+$',          # PascalCase simple: Indexer
-            r'[a-z]_[a-z]',            # snake_case: user_id
+            r'[a-zA-Z0-9]_[a-zA-Z0-9]',  # snake_case: user_id
+            r'^_[a-zA-Z0-9_]+',        # Python private/magic: _format_compact
             r'^[A-Z][A-Z0-9_]+$',      # CONSTANTE: MAX_RETRIES
         ]
         
@@ -708,7 +725,8 @@ class Indexer:
                     continue
                 matches.append({"id": mid, "remote": is_remote, "line": 0})
         except Exception as e:
-            sys.stderr.write(f"[Indexer] where_document search failed: {e}\n")
+            sys.stderr.write(f"[Indexer] where_document search failed: {e}. Falling back to disk grep.\n")
+            return self._grep_search(project_path, query_text, file_pattern, collection=None, workspace_only=workspace_only)
 
         return matches
 
@@ -868,13 +886,15 @@ class Indexer:
             final_ids, rrf_scores = self._word_boost(final_ids, rrf_scores, identifiers, metadatas_lookup)
             final_ids, rrf_scores = self._declaration_boost(final_ids, rrf_scores, identifiers, metadatas_lookup)
             
-        # [V3-B] Code Type Boost for Symbol Queries
-        # If query looks like a symbol, boost actual code files over docs
+        # [V3-B] Code Boost & Doc Fallback Penalty for Symbol Queries
+        # Pushes docs to the bottom of the list. They will ONLY show up if no code files exist.
         if query_type == 'symbol':
              for fid in final_ids:
                  ftype = metadatas_lookup.get(fid, {}).get("type", "unknown")
                  if ftype == 'code':
-                     rrf_scores[fid] += 0.05
+                     rrf_scores[fid] += 0.5   # Strong boost for code
+                 elif ftype == 'doc':
+                     rrf_scores[fid] -= 0.8   # Heavy penalty for docs, acting as fallback
             
         if query_type == 'conceptual':
             keywords = self._extract_keywords(query_text)
@@ -963,6 +983,7 @@ class Indexer:
                     "remote": is_remote,
                     "env": env_name,
                     "rrf_score": rrf_scores[doc_id],
+                    "type": _sk_meta.get("type", "code") if not is_remote else "code",
                     "line": match_line,
                     "skeleton": skeleton_text,
                     "line_map": line_map_text

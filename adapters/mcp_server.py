@@ -428,14 +428,11 @@ def create_mcp_server():
                                 break
                         if symbol:
                             break
-                    if not symbol:
-                        skeleton = best_meta.get("skeleton", "") if best_meta else ""
-                        sk_match = re.search(
-                            r'(?:function|class|def|const|let|var|export function)\s+([a-zA-Z0-9_]+)',
-                            skeleton
-                        )
-                        if sk_match:
-                            symbol = sk_match.group(1)
+                    if not symbol and line_map:
+                        # [Bugfix_OPT3] & [V2-D] Immediate co-located fallback instead of blind regex
+                        sorted_syms = sorted(line_map.items(), key=lambda x: x[1])
+                        co_symbols = ", ".join(f"{k}:L{v}" for k, v in sorted_syms[:8])
+                        output += f"\n📎 Co-located en {os.path.basename(best_meta.get('path','?'))}: {co_symbols}"
                     if symbol and symbol.lower() != query.lower():
                         q2_start = time.time()
                         usg_results = indexer.query(project_path, symbol, workspace_only=workspace_only)
