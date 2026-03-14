@@ -783,15 +783,14 @@ def create_mcp_server():
                     try:
                         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                         c = conn.cursor()
-                        # Extraer solo archivos de tipo 'code' y su line_map
+                        # Extraer solo archivos de tipo 'code' y su line_map usando solo la tabla de metadatos
                         c.execute('''
                             SELECT 
-                                MAX(CASE WHEN em.key = 'path' THEN em.string_value END) as path,
-                                MAX(CASE WHEN em.key = 'line_map' THEN em.string_value END) as line_map
-                            FROM embeddings e
-                            JOIN embedding_metadata em ON e.id = em.id
-                            GROUP BY e.id
-                            HAVING MAX(CASE WHEN em.key = 'type' THEN em.string_value END) = 'code'
+                                MAX(CASE WHEN key = 'path' THEN string_value END) as path,
+                                MAX(CASE WHEN key = 'line_map' THEN string_value END) as line_map
+                            FROM embedding_metadata
+                            GROUP BY id
+                            HAVING MAX(CASE WHEN key = 'type' THEN string_value END) = 'code'
                         ''')
                         for row in c.fetchall():
                             if row[0]: # path no es None
