@@ -788,9 +788,9 @@ def create_mcp_server():
                             SELECT 
                                 MAX(CASE WHEN em.key = 'path' THEN em.string_value END) as path,
                                 MAX(CASE WHEN em.key = 'line_map' THEN em.string_value END) as line_map
-                            FROM bindings b
-                            JOIN embedding_metadata em ON b.embedding_id = em.id
-                            GROUP BY b.embedding_id
+                            FROM embeddings e
+                            JOIN embedding_metadata em ON e.id = em.id
+                            GROUP BY e.id
                             HAVING MAX(CASE WHEN em.key = 'type' THEN em.string_value END) = 'code'
                         ''')
                         for row in c.fetchall():
