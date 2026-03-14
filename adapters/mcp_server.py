@@ -547,24 +547,39 @@ def create_mcp_server():
                 if not os.path.exists(file_path):
                     return [types.TextContent(type="text", text=f"❌ File not found: {file_path}")]
                 
-                # Get line_map from ChromaDB for this file
-                results = indexer.query(project_path, symbol_name, file_pattern=os.path.basename(file_path))
-                metadatas = results.get("metadatas", [[]])[0]
+                # ARCHITECTURAL FIX: Direct ID lookup instead of semantic search
+                # Since we have the absolute file_path, we should query ChromaDB directly by ID
+                line_map = {}
+                found_meta = None
+                
+                try:
+                    # Access the collection directly via indexer's internal store
+                    indices_dir, _ = indexer._get_paths(project_path)
+                    collection = indexer._store.get_collection(project_path, indices_dir)
+                    if collection:
+                        # ChromaDB uses path as ID
+                        res = collection.get(ids=[file_path], include=["metadatas"])
+                        if res and res["metadatas"]:
+                            found_meta = res["metadatas"][0]
+                            line_map = json.loads(found_meta.get("line_map", "{}"))
+                except Exception as e:
+                    # Fallback to fuzzy search in case of direct lookup error
+                    sys.stderr.write(f"[DEBUG] Direct lookup failed for {file_path}: {e}. Falling back to fuzzy search.\n")
+                    results = indexer.query(project_path, symbol_name, file_pattern=os.path.basename(file_path))
+                    metadatas = results.get("metadatas", [])
+                    for meta in metadatas:
+                        if meta.get("path") == file_path:
+                            found_meta = meta
+                            line_map = json.loads(meta.get("line_map", "{}"))
+                            break
                 
                 start_line = None
-                for meta in metadatas:
-                    if meta.get("path") == file_path:
-                        line_map_raw = meta.get("line_map", "{}")
-                        try:
-                            line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else line_map_raw
-                        except Exception:
-                            line_map = {}
-                        # Find exact or partial match
-                        for k, v in line_map.items():
-                            if k.lower() == symbol_name.lower() or symbol_name.lower() in k.lower():
-                                start_line = v
-                                break
-                        break
+                if line_map:
+                    # Find exact or partial match
+                    for k, v in line_map.items():
+                        if k.lower() == symbol_name.lower() or symbol_name.lower() in k.lower():
+                            start_line = v
+                            break
                 
                 if start_line is None:
                     return [types.TextContent(type="text", text=f"❌ Symbol '{symbol_name}' not found in index for {file_path}. Try ace_manage_index(action='reindex') first.")]
