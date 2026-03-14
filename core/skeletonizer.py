@@ -230,8 +230,70 @@ class Skeletonizer:
                         skeleton_lines.append(" " * (indent + 4) + "...")
             return "\n".join(skeleton_lines), {}, [], []
 
-    def _traverse(self, node, lines, skeleton_lines, line_map):
-        # ... (refactor para usar el método si prefieres, pero mantengamos el inline por consistencia)
-        pass
+    def scan_blind_spots(self, code: str, filepath: str):
+        """
+        Scans a file for 'blind spots' or anti-patterns that often lead to silent errors.
+        Returns a list of diagnostic messages with line numbers.
+        """
+        diagnostics = []
+        try:
+            language = self._get_language(filepath)
+            print(f"[DEBUG scan_blind_spots] filepath: {filepath}, language: {language}")
+            if not language:
+                return []
+
+            ext = os.path.splitext(filepath)[1].lower()
+            lang_obj = self.LANG_REGISTRY.get(ext, self.LANG_REGISTRY['.py'])()
+            parser = Parser(lang_obj)
+            tree = parser.parse(bytes(code, "utf8"))
+            lines = code.splitlines()
+
+            # Define patterns for blind spots
+            # 1. Python patterns
+            if language == "python":
+                query_str = "(except_clause (block (pass_statement)) @bare_except_pass) (except_clause (block (expression_statement (string))) @bare_except_doc)"
+                query = Query(lang_obj, query_str)
+                cursor = QueryCursor(query)
+                captures = cursor.captures(tree.root_node)
+                for tag, nodes in captures.items():
+                    for node in nodes:
+                        msg = "Found 'except: pass' or empty bare except. This swallows errors silently."
+                        if tag == "bare_except_doc":
+                            msg = "Found except with only a docstring/string. Likely swallows errors silently."
+                        diagnostics.append({
+                            "line": node.start_point[0] + 1,
+                            "type": tag,
+                            "message": msg
+                        })
+
+            # 2. Javascript / Typescript patterns
+            elif language in ("javascript", "typescript"):
+                query_str = "(catch_clause body: (statement_block) @catch_body)"
+                query = Query(lang_obj, query_str)
+                cursor = QueryCursor(query)
+                captures = cursor.captures(tree.root_node)
+                for tag, nodes in captures.items():
+                    for node in nodes:
+                        # Post-process: check if body is empty or just comments
+                        body_code = node.text.decode("utf8").strip()
+                        inner = body_code[1:-1].strip()
+                        if not inner or len(inner) < 3:
+                             diagnostics.append({
+                                "line": node.start_point[0] + 1,
+                                "type": "silent_catch",
+                                "message": "Catch block is empty or contains no functional code. Potential silent error."
+                            })
+            
+            return diagnostics
+        except Exception:
+            return []
+
+    def _get_language(self, filepath: str):
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext == ".py": return "python"
+        if ext in (".js", ".jsx"): return "javascript"
+        if ext in (".ts", ".tsx"): return "typescript"
+        if ext == ".go": return "go"
+        return None
 
 # Update the main skeletonize return to include inherits_found

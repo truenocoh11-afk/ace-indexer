@@ -62,147 +62,53 @@ def create_mcp_server():
         return [
             types.Tool(
                 name="ace_search_code",
-                description="[v0.8.2] 💎 Hybrid search (Health, Hints & Remote). project_path is OPTIONAL.",
-
-
-
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "The search query"},
-                        "project_path": {"type": "string", "description": "Absolute path (optional)"},
-                        "file_pattern": {"type": "string", "description": "Optional glob pattern"}
-                    },
-                    "required": ["query"]
-                }
-            ),
-            types.Tool(
-                name="ace_search_code_compact",
-                description="[BETA v1.0] ⚡ High-density TSV output. Same search power as ace_search_code but 50-70% fewer tokens. PREFER THIS for architecture queries, exploration, and when searching many files. Returns TSV rows + ===SOURCE=== blocks.",
+                description="[v1.4] 💎 Hybrid search. format='compact' (default, TSV, 65% fewer tokens) or 'verbose' (full snippets). project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "The search query"},
                         "project_path": {"type": "string", "description": "Absolute path (optional)"},
                         "file_pattern": {"type": "string", "description": "Optional glob pattern"},
-                        "auto_usages": {"type": "boolean", "description": "RECOMENDADO para refactorizaciones o investigación de impacto. Actívalo si necesitas ver dónde se usa el símbolo encontrado para evitar segundas consultas."},
-                        "workspace_only": {"type": "boolean", "description": "Default True. Set False to include remote/synced files in results."}
+                        "format": {"type": "string", "enum": ["compact", "verbose"], "default": "compact", "description": "compact=TSV high-density (default). verbose=full snippets."},
+                        "auto_usages": {"type": "boolean", "description": "Also search for usages of the found symbol. Recommended for impact analysis."},
+                        "workspace_only": {"type": "boolean", "description": "Default True. Set False to include remote/synced files."}
                     },
                     "required": ["query"]
                 }
             ),
             types.Tool(
-                name="ace_sync_remote_index",
-                description="[v0.9.1] 🌐 Phase 1: Generate command to count remote files (Delegate Mode).",
+                name="ace_remote",
+                description="[v1.0] 🌐 Remote sync manager. phase='plan_count' (count files), 'plan_sync' (generate sync commands), 'ingest' (load results).",
                 inputSchema={
                     "type": "object",
                     "properties": {
+                        "phase": {"type": "string", "enum": ["plan_count", "plan_sync", "ingest"], "description": "plan_count=Phase 1, plan_sync=Phase 2, ingest=Phase 3"},
                         "project_path": {"type": "string"},
                         "env_name": {"type": "string", "description": "Env name (loads from .ace/remotes.json if exists)"},
-                        "ssh_alias": {"type": "string", "description": "SSH alias from ~/.ssh/config"},
-                        "ssh_host": {"type": "string", "description": "Direct SSH host (user@ip)"},
-                        "identity_file": {"type": "string", "description": "Path to SSH key"},
-                        "remote_path": {"type": "string", "description": "Path on remote server"},
-                        "file_extensions": {"type": "string", "description": "Comma-separated extensions"},
-                        "exclude_dirs": {"type": "string", "description": "Comma-separated dirs to skip"}
+                        "ssh_alias": {"type": "string"}, "ssh_host": {"type": "string"},
+                        "identity_file": {"type": "string"}, "remote_path": {"type": "string"},
+                        "file_extensions": {"type": "string"}, "exclude_dirs": {"type": "string"}
                     },
-                    "required": ["env_name"]
-                }
-            ),
-            types.Tool(
-                name="ace_sync_remote_execute",
-                description="[v0.9.1] 🚀 Phase 2: Generate commands for full remote sync (Delegate Mode).",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string"},
-                        "env_name": {"type": "string", "description": "Env name"},
-                        "ssh_alias": {"type": "string"},
-                        "ssh_host": {"type": "string"},
-                        "identity_file": {"type": "string"},
-                        "remote_path": {"type": "string"},
-                        "file_extensions": {"type": "string"},
-                        "exclude_dirs": {"type": "string"}
-                    },
-                    "required": ["env_name"]
-                }
-            ),
-            types.Tool(
-                name="ace_ingest_remote_data",
-                description="[v0.9.0] ✅ Phase 3: Ingest results from local cache and index them.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string"},
-                        "env_name": {"type": "string", "description": "Env name"}
-                    },
-                    "required": ["env_name"]
+                    "required": ["phase", "env_name"]
                 }
             ),
 
-            types.Tool(
-                name="ace_index_status",
 
-
-                description="Check index health. project_path is OPTIONAL.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string"}
-                    }
-                }
-            ),
             types.Tool(
-                name="ace_list_indexed",
-                description="List indexed files. project_path is OPTIONAL.",
+                name="ace_memory",
+                description="[v1.0] 🧠 Session memory. action='boot' (load all memory at session start). action='update' (write to memory). project_path is OPTIONAL.",
                 inputSchema={
                     "type": "object",
                     "properties": {
+                        "action": {"type": "string", "enum": ["boot", "update"], "description": "boot=load all, update=write"},
                         "project_path": {"type": "string"},
-                        "pattern": {"type": "string"}
-                    }
-                }
-            ),
-            types.Tool(
-                name="ace_index_project",
-                description="Manual re-index. project_path is OPTIONAL.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string"},
-                        "force": {"type": "boolean"},
-                        "extra_ignore_dirs": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Additional directory names to ignore during indexing (e.g. ['site-packages', 'wheels'])"
-                        }
-                    }
-                }
-            ),
-            types.Tool(
-                name="ace_boot_memory",
-                description="[START OF SESSION] Load all memory. project_path is OPTIONAL.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string"}
-                    }
-                }
-            ),
-            types.Tool(
-                name="ace_update_memory",
-                description="Update memory. By default, appends content to the existing file. If the existing context is contradictory or confusing, use archive_legacy=True to move it to a legacy section. To completely wipe it, use force=True. project_path is OPTIONAL.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string"},
-                        "memory_type": {"type": "string", "enum": ["context", "task", "lessons"]},
-                        "content": {"type": "string"},
-                        "append": {"type": "boolean", "default": True, "description": "Add content to the bottom of the existing file."},
-                        "archive_legacy": {"type": "boolean", "default": False, "description": "Move existing context to a 'Legacy' section and put new content at the top. Use ONLY if the original context is confusing or contradictory."},
-                        "force": {"type": "boolean", "description": "Set to True ONLY to completely wipe the file.", "default": False}
+                        "memory_type": {"type": "string", "enum": ["context", "task", "lessons"], "description": "Required for action=update"},
+                        "content": {"type": "string", "description": "Required for action=update"},
+                        "append": {"type": "boolean", "default": True},
+                        "archive_legacy": {"type": "boolean", "default": False},
+                        "force": {"type": "boolean", "default": False}
                     },
-                    "required": ["memory_type", "content"]
+                    "required": ["action"]
                 }
             ),
             types.Tool(
@@ -262,6 +168,17 @@ def create_mcp_server():
                             "type": "boolean",
                             "description": "If true, append diagnostic debug information to the output."
                         }
+                    }
+                }
+            ),
+            types.Tool(
+                name="ace_code_health_scan",
+                description="[v1.0 BETA] 🩺 Scan code for 'blind spots' and silent-error anti-patterns (Bare except, empty catch, etc).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string", "description": "Absolute path (optional)"},
+                        "file_pattern": {"type": "string", "description": "Optional glob pattern to filter files"}
                     }
                 }
             )
@@ -372,150 +289,82 @@ def create_mcp_server():
         
         try:
             if name == "ace_search_code":
-                query = arguments.get("query")
-                project_path = resolve_project_path(arguments)
-                file_pattern = arguments.get("file_pattern")
-                
-                # Perform Search Logic directly
-                results = indexer.query(project_path, query, file_pattern=file_pattern)
-                
-                text_output = []
-                documents = results.get("documents", [[]])[0]
-                metadatas = results.get("metadatas", [[]])[0]
-                
-                # Handle 0 Results with Stats
-                if not documents:
-                    meta = metadatas[0] if metadatas else {}
-                    if meta.get("status") == "no_results":
-                        text_output.append(f"❌ Found 0 matches for: '{query}'")
-                        
-                        # [Phase B: Query Hints]
-                        if any(c in query for c in "().'\""):
-                            text_output.append(f"💡 Hint: Your query looks like code. If literal search failed, try a conceptual query (e.g., 'logic for launch display' instead of 'app.get(\"/api/launches\")')")
-                        
-                        # [Phase A: Index Health]
-                        try:
-                            status = indexer.get_index_status(project_path)
-                            if status["status"] == "ok":
-                                import datetime
-                                dt = datetime.datetime.fromtimestamp(status["last_update"]).strftime('%Y-%m-%d %H:%M:%S')
-                                text_output.append(f"\n📊 Index Health:")
-                                text_output.append(f"   • Files indexed: {status['indexed_files_count']}")
-                                text_output.append(f"   • Last updated: {dt}")
-                                if status.get("missing_from_index_count", 0) > 0:
-                                    text_output.append(f"   • ⚠️ {status['missing_from_index_count']} files on disk not in index. Run ace_index_project(force=True) to sync.")
-                        except: pass
-                        
-                        return [types.TextContent(type="text", text="\n".join(text_output))]
-
-                text_output.append(f"Found {len(documents)} matching files for: {project_path}\n")
-                
-                # [Phase A: Proactive Health Info even with results]
-                try:
-                    status = indexer.get_index_status(project_path)
-                    if status["status"] == "ok":
-                        text_output.append(f"📊 Index Stats: {status['indexed_files_count']} files | Last updated: {datetime.datetime.fromtimestamp(status['last_update']).strftime('%H:%M')}")
-                        if status.get("missing_from_index_count", 0) > 0:
-                            text_output.append(f"   ⚠️ Warning: {status['missing_from_index_count']} stale files. Consider re-indexing.\n")
-                except: pass
-
-                
-                for doc, meta in zip(documents, metadatas):
-                    path = meta.get('path', 'unknown')
-                    is_boosted = meta.get('boosted', False)
-                    is_literal = meta.get('literal_match', False)
-                    is_remote = meta.get('remote', False)
-                    env = meta.get('env')
-                    
-                    # Labels and Badges
-                    match_type = " [LITERAL MATCH] ✅" if is_literal else " [SEMANTIC ONLY] 🧠"
-                    remote_badge = f" [REMOTE: {env}] 🌐" if is_remote else ""
-                    priority = " [PRIORITY]" if is_boosted else ""
-                    
-                    text_output.append(f"--- File: {path}{remote_badge}{match_type}{priority} ---")
-                    
-                    # For remote files, add hint on how to view full content
-                    if is_remote:
-                        # Try to guess SSH alias from remotes.json or use a generic hint
-                        text_output.append(f"💡 Remote snippet. Use SSH to view full content.")
-                    
-                    text_output.append(doc[:3000] if is_boosted else doc[:1500])
-                    text_output.append("\n" + "-"*20 + "\n")
-                
-                return [types.TextContent(type="text", text="\n".join(text_output))]
-            
-            elif name == "ace_search_code_compact":
-                import re
-                import time
+                import re, time, datetime
                 start_time = time.time()
-
                 query = arguments.get("query")
                 project_path = resolve_project_path(arguments)
                 file_pattern = arguments.get("file_pattern")
+                fmt = arguments.get("format", "compact")
                 auto_usages = arguments.get("auto_usages", False)
                 workspace_only = arguments.get("workspace_only", True)
 
                 results = indexer.query(project_path, query, file_pattern=file_pattern, workspace_only=workspace_only)
                 q1_duration = time.time() - start_time
-
                 documents = results.get("documents", [[]])[0]
                 metadatas = results.get("metadatas", [[]])[0]
 
                 if not documents:
                     total_time = time.time() - start_time
-                    hints = [f"[COMPACT] 0 results for: '{query}'"]
+                    text_output = [f"[SEARCH] 0 results for: '{query}'"]
                     if any(c in query for c in "().'\""):
-                        hints.append("💡 Try conceptual: describe what the code does instead of pasting syntax")
-                    if "_" in query and len(query.split()) == 1:
-                        parts = query.split("_")
-                        hints.append(f"💡 Try broader: '{' '.join(parts)}'")
-                    elif len(query.split()) == 1:
-                        hints.append(f"💡 Try: 'where is {query} defined' or file_pattern='*.py'")
+                        text_output.append("💡 Hint: Your query looks like code. If literal search failed, try conceptual.")
+                    
                     try:
                         status = indexer.get_index_status(project_path)
                         if status.get("status") == "ok":
-                            hints.append(f"📊 INDEX: {status['indexed_files_count']} files")
+                            dt = datetime.datetime.fromtimestamp(status["last_update"]).strftime('%Y-%m-%d %H:%M:%S')
+                            text_output.append(f"\n📊 Index Status: {status['indexed_files_count']} files | Last updated: {dt}")
                             if status.get("missing_from_index_count", 0) > 0:
-                                hints.append(f"⚠️ {status['missing_from_index_count']} unindexed files. Run ace_index_project(force=True)")
+                                text_output.append(f"   ⚠️ {status['missing_from_index_count']} unindexed files. Run ace_manage_index(action='reindex')")
                     except Exception:
                         pass
-                    hints.append(f"[TIME: {total_time:.2f}s]")
-                    return [types.TextContent(type="text", text="\n".join(hints))]
+                    return [types.TextContent(type="text", text="\n".join(text_output))]
 
+                if fmt == "verbose":
+                    text_output = [f"Found {len(documents)} matching files for: {project_path}\n"]
+                    try:
+                        status = indexer.get_index_status(project_path)
+                        if status["status"] == "ok":
+                            dt = datetime.datetime.fromtimestamp(status['last_update']).strftime('%H:%M')
+                            text_output.append(f"📊 Index Stats: {status['indexed_files_count']} files | Last updated: {dt}")
+                            if status.get("missing_from_index_count", 0) > 0:
+                                text_output.append(f"   ⚠️ Warning: {status['missing_from_index_count']} stale files.\n")
+                    except: pass
+
+                    for doc, meta in zip(documents, metadatas):
+                        path = meta.get('path', 'unknown')
+                        is_boosted = meta.get('boosted', False)
+                        is_literal = meta.get('literal_match', False)
+                        is_remote = meta.get('remote', False)
+                        env = meta.get('env')
+                        match_type = " [LITERAL MATCH] ✅" if is_literal else " [SEMANTIC ONLY] 🧠"
+                        remote_badge = f" [REMOTE: {env}] 🌐" if is_remote else ""
+                        priority = " [PRIORITY]" if is_boosted else ""
+                        text_output.append(f"--- File: {path}{remote_badge}{match_type}{priority} ---")
+                        if is_remote: text_output.append("💡 Remote snippet. Use SSH to view full content.")
+                        text_output.append(doc[:3000] if is_boosted else doc[:1500])
+                        text_output.append("\n" + "-"*20 + "\n")
+                    return [types.TextContent(type="text", text="\n".join(text_output))]
+
+                # DEFAULT: compact
                 fmt1_start = time.time()
                 output = _format_compact(documents, metadatas, query, project_path)
                 fmt1_duration = time.time() - fmt1_start
-
                 usg_duration = 0.0
                 if auto_usages and documents:
                     symbol = None
-                    # [v1.1.1] Prioritize code files for line_map extraction
-                    # Find first metadata that is 'code' or has valid line_map
-                    best_meta = None
-                    for m in metadatas:
-                        if m.get('type') == 'code':
-                            best_meta = m
-                            break
-                    if not best_meta and metadatas:
-                        best_meta = metadatas[0]
-                    
+                    best_meta = next((m for m in metadatas if m.get('type') == 'code'), metadatas[0] if metadatas else None)
                     line_map_raw = best_meta.get("line_map", "{}") if best_meta else "{}"
                     try:
                         line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else (line_map_raw or {})
-                    except Exception:
-                        line_map = {}
+                    except Exception: line_map = {}
                     query_tokens = re.split(r'[\s_.()\[\]]+', query.lower())
-                    for token in query_tokens:
-                        if len(token) < 3:
-                            continue
+                    for token in (t for t in query_tokens if len(t) >= 3):
                         for key in line_map:
                             if token in key.lower():
-                                symbol = key
-                                break
-                        if symbol:
-                            break
+                                symbol = key; break
+                        if symbol: break
                     if not symbol and line_map:
-                        # [Bugfix_OPT3] & [V2-D] Immediate co-located fallback instead of blind regex
                         sorted_syms = sorted(line_map.items(), key=lambda x: x[1])
                         co_symbols = ", ".join(f"{k}:L{v}" for k, v in sorted_syms[:8])
                         output += f"\n📎 Co-located en {os.path.basename(best_meta.get('path','?'))}: {co_symbols}"
@@ -527,29 +376,20 @@ def create_mcp_server():
                         if usg_docs:
                             usg_block = _format_compact(usg_docs, usg_metas, symbol, project_path, is_usage_block=True)
                             output += "\n\n" + usg_block
-                        elif not usg_docs:
-                             # [V2-D] Fallback: Co-located symbols
-                            line_map_raw = metadatas[0].get("line_map", "{}") if metadatas else "{}"
-                            try:
-                                line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else (line_map_raw or {})
-                                if line_map:
-                                    # Sort by line number
-                                    sorted_syms = sorted(line_map.items(), key=lambda x: x[1])
-                                    # Take up to 8 symbols
-                                    co_symbols = ", ".join(f"{k}:L{v}" for k, v in sorted_syms[:8])
-                                    output += f"\n\n[DOMINO: NO USAGES FOUND] -> Co-located symbols in {metadatas[0].get('path','?')}:\n📎 {co_symbols}"
-                            except Exception:
-                                pass
+                        elif not usg_docs and line_map:
+                            sorted_syms = sorted(line_map.items(), key=lambda x: x[1])
+                            co_symbols = ", ".join(f"{k}:L{v}" for k, v in sorted_syms[:8])
+                            output += f"\n\n[DOMINO: NO USAGES FOUND] -> Co-located: {co_symbols}"
                         usg_duration = time.time() - q2_start
-
                 total_duration = time.time() - start_time
                 output_chars = len(output)
-                full_estimate = int(output_chars * 2.5)
-                savings_pct = max(0, int((1 - output_chars / max(full_estimate, 1)) * 100))
-                debug_info = f"\n[DEBUG] Time: {total_duration:.2f}s | Q1: {q1_duration:.2f}s | Fmt: {fmt1_duration:.2f}s | Usages: {usg_duration:.2f}s | Out: {output_chars}ch (~{output_chars//4}tok) | ~{savings_pct}% saved"
-                output = output + "\n" + debug_info
+                debug_info = f"\n[DEBUG] Time: {total_duration:.2f}s | Q1: {q1_duration:.2f}s | Fmt: {fmt1_duration:.2f}s | Usages: {usg_duration:.2f}s | Out: {output_chars}ch"
+                return [types.TextContent(type="text", text=output + "\n" + debug_info)]
 
-                return [types.TextContent(type="text", text=output)]
+            elif name == "ace_search_code_compact":
+                # LEGACY REDIRECT
+                arguments["format"] = "compact"
+                return await call_tool("ace_search_code", arguments)
 
             elif name == "ace_get_symbol":
                 import linecache, json
@@ -617,6 +457,21 @@ def create_mcp_server():
                 output += "".join(lines)
                 return [types.TextContent(type="text", text=output)]
 
+            elif name == "ace_index_status":
+                # LEGACY REDIRECT
+                arguments["action"] = "status"
+                return await call_tool("ace_manage_index", arguments)
+
+            elif name == "ace_list_indexed":
+                # LEGACY REDIRECT
+                arguments["action"] = "list"
+                return await call_tool("ace_manage_index", arguments)
+
+            elif name == "ace_index_project":
+                # LEGACY REDIRECT
+                arguments["action"] = "reindex"
+                return await call_tool("ace_manage_index", arguments)
+
             elif name == "ace_manage_index":
                 action = arguments.get("action", "status")
                 project_path = resolve_project_path(arguments)
@@ -645,86 +500,96 @@ def create_mcp_server():
                 
                 return [types.TextContent(type="text", text=f"❌ Unknown action: {action}")]
 
-            elif name == "ace_boot_memory":
+            elif name == "ace_memory":
                 from core.memory import MemoryManager
+                action = arguments.get("action")
                 project_path = resolve_project_path_strict(arguments)
                 manager = MemoryManager(project_path)
-                content = manager.read("all")
-                return [types.TextContent(type="text", text=content)]
+                if action == "boot":
+                    content = manager.read("all")
+                    return [types.TextContent(type="text", text=content)]
+                elif action == "update":
+                    memory_type = arguments.get("memory_type")
+                    content = arguments.get("content")
+                    if not memory_type or not content:
+                        return [types.TextContent(type="text", text="❌ action=update requires 'memory_type' and 'content'.")]
+                    append = arguments.get("append", True)
+                    force = arguments.get("force", False)
+                    archive_legacy = arguments.get("archive_legacy", False)
+                    result = manager.write(memory_type, content, append=append, force=force, archive_legacy=archive_legacy)
+                    return [types.TextContent(type="text", text=result)]
+                return [types.TextContent(type="text", text=f"❌ Unknown action: {action}. Use 'boot' or 'update'.")]
 
-            elif name == "ace_update_memory":
-                # ... [omitted identical logic] ...
-                from core.memory import MemoryManager
-                project_path = resolve_project_path_strict(arguments)
-                memory_type = arguments.get("memory_type")
-                content = arguments.get("content")
-                append = arguments.get("append", True) # Default to True
-                force = arguments.get("force", False)
-                archive_legacy = arguments.get("archive_legacy", False)
-                manager = MemoryManager(project_path)
-                result = manager.write(memory_type, content, append=append, force=force, archive_legacy=archive_legacy)
-                return [types.TextContent(type="text", text=result)]
-                
-            elif name == "ace_sync_remote_index":
+            elif name in ("ace_boot_memory", "ace_update_memory"):
+                # LEGACY REDIRECT
+                arguments["action"] = "boot" if name == "ace_boot_memory" else "update"
+                return await call_tool("ace_memory", arguments)
+
+            elif name == "ace_remote":
+                phase = arguments.get("phase")
                 project_path = resolve_project_path(arguments)
                 env_name = arguments.get("env_name")
-                
                 remote_indexer = RemoteIndexer(project_path)
-                result = remote_indexer.get_count_command(
-                    env_name=env_name,
-                    ssh_alias=arguments.get("ssh_alias"),
-                    ssh_host=arguments.get("ssh_host"),
-                    identity_file=arguments.get("identity_file"),
-                    remote_path=arguments.get("remote_path"),
-                    file_extensions=arguments.get("file_extensions"),
-                    exclude_dirs=arguments.get("exclude_dirs")
-                )
-                
-                msg = (
-                    f"🌐 Phase 1: Count Remote Files (Delegate Mode)\n"
-                    f"Ejecuta este comando en tu terminal para contar los archivos:\n\n"
-                    f"```bash\n{result['command']}\n```\n\n"
-                    f"Si el número es correcto, procede con `ace_sync_remote_execute` para generar el comando de sincronización completa."
-                )
-                return [types.TextContent(type="text", text=msg)]
+                if phase == "plan_count":
+                    result = remote_indexer.get_count_command(env_name=env_name, ssh_alias=arguments.get("ssh_alias"), ssh_host=arguments.get("ssh_host"), identity_file=arguments.get("identity_file"), remote_path=arguments.get("remote_path"), file_extensions=arguments.get("file_extensions"), exclude_dirs=arguments.get("exclude_dirs"))
+                    return [types.TextContent(type="text", text=f"🌐 Phase 1: Count Remote Files\n\n```bash\n{result['command']}\n```\n\nSi es correcto, continúa con phase='plan_sync'.")]
+                elif phase == "plan_sync":
+                    result = remote_indexer.get_sync_command(env_name=env_name, ssh_alias=arguments.get("ssh_alias"), ssh_host=arguments.get("ssh_host"), identity_file=arguments.get("identity_file"), remote_path=arguments.get("remote_path"), file_extensions=arguments.get("file_extensions"), exclude_dirs=arguments.get("exclude_dirs"))
+                    return [types.TextContent(type="text", text=f"🚀 Phase 2: Full Remote Sync\n\n1. SCP script:\n```bash\n{result['scp_command']}\n```\n\n2. Ejecutar:\n```bash\n{result['exec_command']} > \"{result['output_path']}\"\n```\n\nLuego: phase='ingest'")]
+                elif phase == "ingest":
+                    data = remote_indexer.ingest_cache(env_name)
+                    # Ingest into local vector store
+                    stats = indexer.index_remote_data(project_path, data)
+                    return [types.TextContent(type="text", text=f"✅ Remote ingested for '{env_name}'. Files: {stats['indexed']}")]
+                return [types.TextContent(type="text", text=f"❌ Unknown phase: {phase}. Use plan_count, plan_sync, or ingest.")]
 
-            elif name == "ace_sync_remote_execute":
-                project_path = resolve_project_path(arguments)
-                env_name = arguments.get("env_name")
-                
-                remote_indexer = RemoteIndexer(project_path)
-                result = remote_indexer.get_sync_command(
-                    env_name=env_name,
-                    ssh_alias=arguments.get("ssh_alias"),
-                    ssh_host=arguments.get("ssh_host"),
-                    identity_file=arguments.get("identity_file"),
-                    remote_path=arguments.get("remote_path"),
-                    file_extensions=arguments.get("file_extensions"),
-                    exclude_dirs=arguments.get("exclude_dirs")
-                )
-                
-                msg = (
-                    f"🚀 Phase 2: Full Remote Sync (Delegate Mode v0.9.1)\n"
-                    f"Sigue estos pasos para sincronizar el código remoto:\n\n"
-                    f"1. **Subir Script**: Copia el script de indexación al servidor:\n"
-                    f"```bash\n{result['scp_command']}\n```\n\n"
-                    f"2. **Ejecutar e Indexar**: Ejecuta el script y guarda el resultado localmente:\n"
-                    f"```bash\n{result['exec_command']} > \"{result['output_path']}\"\n```\n\n"
-                    f"Una vez completado, llama a `ace_ingest_remote_data(env_name=\"{env_name}\")` para cargar los resultados."
-                )
-                return [types.TextContent(type="text", text=msg)]
+            elif name in ("ace_sync_remote_index", "ace_sync_remote_execute", "ace_ingest_remote_data"):
+                # LEGACY REDIRECT
+                phase_map = {"ace_sync_remote_index": "plan_count", "ace_sync_remote_execute": "plan_sync", "ace_ingest_remote_data": "ingest"}
+                arguments["phase"] = phase_map[name]
+                return await call_tool("ace_remote", arguments)
 
-            elif name == "ace_ingest_remote_data":
+            elif name == "ace_code_health_scan":
+                from core.skeletonizer import Skeletonizer
+                import fnmatch
                 project_path = resolve_project_path(arguments)
-                env_name = arguments.get("env_name")
+                file_pattern = arguments.get("file_pattern", "*")
                 
-                remote_indexer = RemoteIndexer(project_path)
-                data = remote_indexer.ingest_cache(env_name)
+                skeletonizer = Skeletonizer()
+                all_diagnostics = []
                 
-                # Ingest into local vector store
-                ingest_stats = indexer.index_remote_data(project_path, data)
+                # Scan files
+                for root, _, files in os.walk(project_path):
+                    for file in files:
+                        full_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(full_path, project_path).replace("\\", "/")
+                        
+                        if fnmatch.fnmatch(rel_path, file_pattern) or fnmatch.fnmatch(file, file_pattern):
+                            # Skip common binary/ignore dirs
+                            if any(d in rel_path.split("/") for d in (".git", "node_modules", "venv", ".next", "__pycache__")):
+                                continue
+                            
+                            try:
+                                with open(full_path, "r", encoding="utf-8") as f:
+                                    code = f.read()
+                                
+                                results = skeletonizer.scan_blind_spots(code, full_path)
+                                if results:
+                                    for res in results:
+                                        res["file"] = rel_path
+                                        all_diagnostics.append(res)
+                            except Exception:
+                                continue
+
+                if not all_diagnostics:
+                    return [types.TextContent(type="text", text="✅ No blind spots found. Code looks healthy!")]
                 
-                return [types.TextContent(type="text", text=f"✅ Remote Data Ingested for '{env_name}'.\nFiles indexed: {ingest_stats['indexed']}\nAll remote snippets are now searchable locally.")]
+                # Format output
+                output = ["🩺 **ACE Health Scan Results**\n"]
+                for diag in all_diagnostics:
+                    output.append(f"- `[{diag['file']}:{diag['line']}]` {diag['message']} (type: {diag['type']})")
+                
+                return [types.TextContent(type="text", text="\n".join(output))]
 
             elif name == "ace_call_graph":
                 from core.markov import MarkovCallGraph
