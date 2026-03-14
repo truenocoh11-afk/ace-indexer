@@ -699,7 +699,7 @@ def create_mcp_server():
                 
                 # Cargar toda la metadata del index para construir el grafo de forma eficiente
                 indices_dir, _ = indexer._get_paths(project_path)
-                collection = indexer._get_chroma_collection(project_path, indices_dir)
+                collection = indexer._store.get_collection(project_path, indices_dir)
                 if not collection:
                     return [types.TextContent(type="text", text="❌ Chroma collection not found. Re-index first.")]
                 
