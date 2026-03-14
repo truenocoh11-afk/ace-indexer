@@ -771,6 +771,8 @@ def create_mcp_server():
                 if not collection:
                     return [types.TextContent(type="text", text="❌ Chroma collection not found. Re-index first.")]
                 
+                import json
+                
                 # --- BUGFIX: Fallback robusto con SQLite directo ---
                 # Debido a una incompatibilidad de versiones en ChromaDB (v0.4.22 vs Schema v10),
                 # el método `collection.get()` devuelve metadatos vacíos para 'line_map'.
