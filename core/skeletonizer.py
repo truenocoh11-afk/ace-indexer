@@ -211,7 +211,13 @@ class Skeletonizer:
             _traverse(tree.root_node)
             return "\n".join(skeleton_lines), line_map, calls_found, inherits_found
 
-        except Exception:
+        except Exception as e:
+            import sys, traceback
+            error_log = os.path.join(os.path.dirname(__file__), 'skeletonizer_error.log')
+            with open(error_log, 'a') as ef:
+                ef.write(f"[Skeletonizer] Error for {filepath}:\n")
+                traceback.print_exc(file=ef)
+                
             # Fallback: safe naive line scan if tree-sitter fails for non-Python files
             lines = code.splitlines()
             skeleton_lines = []
