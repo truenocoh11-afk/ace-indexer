@@ -148,6 +148,42 @@ class Skeletonizer:
                         # For functions, stop here to avoid capturing local variables/internal logic in skeleton
                         return 
 
+                # Extracción Especial para JS/TS Arrow Functions e iniciaciones de variables como funciones
+                elif node.type in ("lexical_declaration", "variable_declaration"):
+                    has_function = False
+                    for child in node.children:
+                        if child.type == "variable_declarator":
+                            value_node = child.child_by_field_name("value")
+                            if value_node and value_node.type in ("arrow_function", "function", "function_expression", "async_function_expression"):
+                                name_node = child.child_by_field_name("name")
+                                if name_node:
+                                    start = node.start_point[0]
+                                    line_map[name_node.text.decode("utf8")] = start + 1
+                                    
+                                    # Add the signature to the skeleton
+                                    skeleton_lines.append(lines[start])
+                                    # Basic visual heuristics for JS signatures that might span multiple lines
+                                    # Search for the start of the block
+                                    curr = start
+                                    found_block = False
+                                    while curr < min(start + 5, len(lines)):
+                                        if "{" in lines[curr]:
+                                            if curr > start:
+                                                skeleton_lines.append(lines[curr])
+                                            found_block = True
+                                            break
+                                        curr += 1
+                                    
+                                    if found_block:
+                                        indent = len(lines[curr]) - len(lines[curr].lstrip())
+                                        skeleton_lines.append(" " * (indent + 4) + "...")
+
+                                    has_function = True
+                    
+                    if has_function:
+                        # Stop traversing to avoid parsing the function body's internal variables
+                        return
+
                 # Recurse into children
                 for child in node.children:
                     _traverse(child)
