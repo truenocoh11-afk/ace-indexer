@@ -148,40 +148,56 @@ class Skeletonizer:
                         # For functions, stop here to avoid capturing local variables/internal logic in skeleton
                         return 
 
-                # Extracción Especial para JS/TS Arrow Functions e iniciaciones de variables como funciones
-                elif node.type in ("lexical_declaration", "variable_declaration"):
+                # Extracción Especial para Variables JS/TS y CommonJS Exports
+                elif node.type in ("lexical_declaration", "variable_declaration", "expression_statement"):
                     has_function = False
-                    for child in node.children:
-                        if child.type == "variable_declarator":
-                            value_node = child.child_by_field_name("value")
-                            if value_node and value_node.type in ("arrow_function", "function", "function_expression", "async_function_expression"):
-                                name_node = child.child_by_field_name("name")
-                                if name_node:
-                                    start = node.start_point[0]
-                                    line_map[name_node.text.decode("utf8")] = start + 1
-                                    
-                                    # Add the signature to the skeleton
-                                    skeleton_lines.append(lines[start])
-                                    # Basic visual heuristics for JS signatures that might span multiple lines
-                                    # Search for the start of the block
-                                    curr = start
-                                    found_block = False
-                                    while curr < min(start + 5, len(lines)):
-                                        if "{" in lines[curr]:
-                                            if curr > start:
-                                                skeleton_lines.append(lines[curr])
-                                            found_block = True
-                                            break
-                                        curr += 1
-                                    
-                                    if found_block:
-                                        indent = len(lines[curr]) - len(lines[curr].lstrip())
-                                        skeleton_lines.append(" " * (indent + 4) + "...")
-
-                                    has_function = True
+                    start = node.start_point[0]
                     
+                    if node.type in ("lexical_declaration", "variable_declaration"):
+                        for child in node.children:
+                            if child.type == "variable_declarator":
+                                value_node = child.child_by_field_name("value")
+                                if value_node and value_node.type in ("arrow_function", "function", "function_expression", "async_function_expression"):
+                                    name_node = child.child_by_field_name("name")
+                                    if name_node:
+                                        line_map[name_node.text.decode("utf8")] = start + 1
+                                        has_function = True
+                    
+                    elif node.type == "expression_statement":
+                        for child in node.children:
+                            if child.type == "assignment_expression":
+                                left = child.child_by_field_name("left")
+                                right = child.child_by_field_name("right")
+                                
+                                if left and right and right.type in ("arrow_function", "function_expression", "async_function_expression"):
+                                    if left.type == "member_expression":
+                                        prop = left.child_by_field_name("property")
+                                        if prop:
+                                            line_map[prop.text.decode("utf8")] = start + 1
+                                            has_function = True
+                                elif left and right and right.type == "object":
+                                    # Handle module.exports = { ... }
+                                    for pair in right.children:
+                                        if pair.type == "pair":
+                                            k = pair.child_by_field_name("key")
+                                            v = pair.child_by_field_name("value")
+                                            if k and v and v.type in ("arrow_function", "function_expression", "async_function_expression"):
+                                                line_map[k.text.decode("utf8")] = pair.start_point[0] + 1
+                                                has_function = True
+
                     if has_function:
-                        # Stop traversing to avoid parsing the function body's internal variables
+                        skeleton_lines.append(lines[start])
+                        curr = start
+                        found_block = False
+                        while curr < min(start + 5, len(lines)):
+                            if "{" in lines[curr]:
+                                if curr > start: skeleton_lines.append(lines[curr])
+                                found_block = True
+                                break
+                            curr += 1
+                        if found_block:
+                            indent = len(lines[curr]) - len(lines[curr].lstrip())
+                            skeleton_lines.append(" " * (indent + 4) + "...")
                         return
 
                 # Recurse into children
