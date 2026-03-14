@@ -771,19 +771,42 @@ def create_mcp_server():
                 if not collection:
                     return [types.TextContent(type="text", text="❌ Chroma collection not found. Re-index first.")]
                 
-                total_items = collection.count()
-                if total_items == 0:
-                    return [types.TextContent(type="text", text="❌ Index is empty. Execute ace_manage_index(action='reindex')")]
+                # --- BUGFIX: Fallback robusto con SQLite directo ---
+                # Debido a una incompatibilidad de versiones en ChromaDB (v0.4.22 vs Schema v10),
+                # el método `collection.get()` devuelve metadatos vacíos para 'line_map'.
+                # Leemos la base de datos SQLite directamente para garantizar la extracción correcta.
+                db_path = os.path.join(indices_dir, "chroma_db", "chroma.sqlite3")
+                code_metas = []
                 
-                all_metas = []
-                batch_size = 2000
-                for i in range(0, total_items, batch_size):
-                    batch = collection.get(include=["metadatas"], limit=batch_size, offset=i)
-                    if batch and batch.get("metadatas"):
-                        all_metas.extend(batch["metadatas"])
+                if os.path.exists(db_path):
+                    import sqlite3
+                    try:
+                        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                        c = conn.cursor()
+                        # Extraer solo archivos de tipo 'code' y su line_map
+                        c.execute('''
+                            SELECT 
+                                MAX(CASE WHEN em.key = 'path' THEN em.string_value END) as path,
+                                MAX(CASE WHEN em.key = 'line_map' THEN em.string_value END) as line_map
+                            FROM bindings b
+                            JOIN embedding_metadata em ON b.embedding_id = em.id
+                            GROUP BY b.embedding_id
+                            HAVING MAX(CASE WHEN em.key = 'type' THEN em.string_value END) = 'code'
+                        ''')
+                        for row in c.fetchall():
+                            if row[0]: # path no es None
+                                code_metas.append({
+                                    "path": row[0],
+                                    "line_map": row[1] or "{}"
+                                })
+                        conn.close()
+                    except Exception as e:
+                        return [types.TextContent(type="text", text=f"❌ SQL Extract Error: {e}")]
+                else:
+                    return [types.TextContent(type="text", text="❌ SQLite DB not found. Re-index first.")]
                 
-                # Agrupación base de archivos (solo "code")
-                code_metas = [m for m in all_metas if m.get("type", "code") == "code"]
+                if not code_metas:
+                    return [types.TextContent(type="text", text="❌ No code metadata found in database.")]
                 
                 from collections import defaultdict
                 modules_map = defaultdict(lambda: {"files": 0, "api_count": 0})
