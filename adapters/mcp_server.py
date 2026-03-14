@@ -244,6 +244,22 @@ def create_mcp_server():
                     },
                     "required": ["file_path"]
                 }
+            ),
+            types.Tool(
+                name="ace_architecture_overview",
+                description="[v1.3] 🗺️ Generate a high-level TSV map of the project architecture. Provides [MODULES], [DEPS], [ENTRY_POINTS], [PUBLIC_API] and [PATTERNS]. Use THIS first to orient yourself in unknown or large codebases without wasting tokens.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string", "description": "Absolute project path (optional)"},
+                        "focus": {
+                            "type": "string", 
+                            "enum": ["full", "modules", "dependencies", "entry_points", "public_api"],
+                            "default": "modules",
+                            "description": "Information to focus on. 'full' consumes more tokens."
+                        }
+                    }
+                }
             )
         ]
 
@@ -743,16 +759,100 @@ def create_mcp_server():
                     known = list(graph.transitions.keys())[:5]
                     hint = f"\nArchivos con calls: {known}" if known else "\n⚠️ Ningún archivo tiene calls. Verifica el skeletonizer."
                     return [types.TextContent(type="text", text=f"❌ No call data for {file_path}.{hint}")]
-                lines = [f"# Call Graph: {os.path.basename(abs_path)}", "| Callee | Count |", "|---|---|"]
-                for callee, count in top:
-                    lines.append(f"| {callee} | {count} |")
-                return [types.TextContent(type="text", text="\n".join(lines))]
-
-
-
-
+                total_items = collection.count()
+                if total_items == 0:
+                    return [types.TextContent(type="text", text="❌ Index is empty. Execute ace_manage_index(action='reindex')")]
                 
-            return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
+                all_metas = []
+                batch_size = 2000
+                for i in range(0, total_items, batch_size):
+                    batch = collection.get(include=["metadatas"], limit=batch_size, offset=i)
+                    if batch and batch.get("metadatas"):
+                        all_metas.extend(batch["metadatas"])
+                
+                # Agrupación base de archivos (solo "code")
+                code_metas = [m for m in all_metas if m.get("type", "code") == "code"]
+                
+                from collections import defaultdict
+                modules_map = defaultdict(lambda: {"files": 0, "api_count": 0})
+                global_api = []
+                entry_points = []
+                
+                for m in code_metas:
+                    fpath = m.get("path", "")
+                    try:
+                        rel = os.path.relpath(fpath, project_path).replace("\\", "/")
+                    except Exception:
+                        rel = fpath.replace("\\", "/")
+                    
+                    mod_name = rel.split("/")[0] if "/" in rel else "/"
+                    modules_map[mod_name]["files"] += 1
+                    
+                    # Detectar entry points por convención de nombre
+                    if any(x in rel.lower() for x in ["main.py", "__main__.py", "cli.py", "index.ts", "index.js", "setup.py", "app."]):
+                        entry_points.append(rel)
+                    
+                    try:
+                        lmap = json.loads(m.get("line_map", "{}"))
+                    except Exception:
+                        lmap = {}
+                    
+                    global_api.extend([(sym, rel, ln) for sym, ln in lmap.items()])
+                    modules_map[mod_name]["api_count"] += len(lmap)
+                
+                # Calcular dependencias (Naive) a través de calls -> api map
+                deps = defaultdict(set)
+                if focus in ["full", "dependencies"]:
+                    sym_file_map = {sym: rel for sym, rel, _ in global_api}
+                    for m in code_metas:
+                        try:
+                            fpath = m.get("path", "")
+                            try:
+                                rel = os.path.relpath(fpath, project_path).replace("\\", "/")
+                            except Exception:
+                                rel = fpath.replace("\\", "/")
+                            mod_source = rel.split("/")[0] if "/" in rel else "/"
+                            calls = json.loads(m.get("calls", "[]"))
+                            for c in calls:
+                                if c in sym_file_map:
+                                    mod_target = sym_file_map[c].split("/")[0] if "/" in sym_file_map[c] else "/"
+                                    if mod_source != mod_target:
+                                        deps[mod_source].add(mod_target)
+                        except Exception:
+                            continue
+
+                lines = [f"# Architecture Overview: {os.path.basename(project_path)}", f"Focus: {focus}\n"]
+                
+                if focus in ["full", "modules"]:
+                    lines.append("## [MODULES]")
+                    lines.append("MODULE\tFILES\tEXPORTS")
+                    for mod, stats in sorted(modules_map.items(), key=lambda x: x[1]['files'], reverse=True)[:20]:
+                        lines.append(f"{mod}\t{stats['files']}\t{stats['api_count']}")
+                    lines.append("")
+                
+                if focus in ["full", "dependencies"]:
+                    lines.append("## [DEPS] (Cross-module calls)")
+                    lines.append("FROM_MODULE\tTO_MODULE")
+                    for src, tgts in sorted(deps.items()):
+                        # Convert to list/string safely
+                        lines.append(f"{src}\t{', '.join(sorted(list(tgts)))}")
+                    lines.append("")
+                
+                if focus in ["full", "entry_points", "modules"]:
+                    lines.append("## [ENTRY_POINTS]")
+                    for ep in entry_points[:10]:
+                        lines.append(f"- {ep}")
+                    lines.append("")
+                
+                if focus in ["full", "public_api"]:
+                    lines.append("## [PUBLIC_API] (Top 50 symbols)")
+                    lines.append("SYMBOL\tFILE\tLINE")
+                    # Orden simple alfabético para dar una muestra (el full dump arruinaría el context window)
+                    for sym, rel, ln in sorted(global_api)[:50]:
+                        lines.append(f"{sym}\t{rel}\tL{ln}")
+                    lines.append("")
+                
+                return [types.TextContent(type="text", text="\n".join(lines))]
             
         except Exception as e:
             import traceback
