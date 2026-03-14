@@ -805,7 +805,8 @@ def create_mcp_server():
                         entry_points.append(rel)
                     
                     try:
-                        lmap = json.loads(m.get("line_map", "{}"))
+                        raw_lmap = m.get("line_map", "{}")
+                        lmap = json.loads(raw_lmap)
                     except Exception:
                         lmap = {}
                     
