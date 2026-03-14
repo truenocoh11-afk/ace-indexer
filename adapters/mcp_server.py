@@ -21,37 +21,39 @@ def create_mcp_server():
         "last_project_path": None
     }
 
-    def resolve_project_path(arguments: dict) -> str:
-        """Infiere el project_path si no se provee. Uses only isolated RAM strictly to prevent IDE crosstalk."""
+    # UNIFIED: One safe function for all tools.
+    # The CWD fallback was removed because in MCP server contexts (Antigravity, Claude Desktop, etc.)
+    # os.getcwd() returns the app install directory, not the user's project — causing misleading errors.
+    def resolve_project_path(arguments: dict, require_explicit: bool = False) -> str:
+        """
+        Resolves project_path safely.
+        
+        Priority:
+          1. Explicit argument (always wins, saves to session state).
+          2. Session memory (previous call in this session).
+          3. Error with clear guidance to call ace_boot_memory first.
+        
+        Args:
+            require_explicit: If True, skips session memory and requires the argument.
+        """
         path = arguments.get("project_path")
         
-        # 1. Si el usuario provee uno, mandatorio guardarlo aisladamente
         if path:
             state["last_project_path"] = path
             return path
         
-        # 2. Si ya lo tenemos en esta sesión
-        if state["last_project_path"]:
+        if not require_explicit and state["last_project_path"]:
             return state["last_project_path"]
         
-        # 3. Fallback final al CWD general
-        cwd = os.getcwd()
-        sys.stderr.write(f"[WARN] No project_path provided. Falling back to CWD: {cwd}\n")
-        state["last_project_path"] = cwd
-        return cwd
-
-    def resolve_project_path_strict(arguments: dict) -> str:
-        """Para herramientas de ESCRITURA. Falla si no hay project_path explícito o en sesión."""
-        path = arguments.get("project_path")
-        if path:
-            state["last_project_path"] = path
-            return path
-        if state["last_project_path"]:
-            return state["last_project_path"]
         raise ValueError(
-            "[ACE ERROR] project_path es requerido para operaciones de escritura. "
-            "Pasa project_path='C:\\\\ruta\\\\absoluta\\\\al\\\\proyecto' explícitamente."
+            "[ACE] project_path no resuelto. Opciones:\n"
+            "1. Pasa project_path='C:\\\\ruta\\\\al\\\\proyecto' explícitamente en esta llamada.\n"
+            "2. Llama a ace_boot_memory(project_path='...') primero para establecerlo en la sesión."
         )
+
+    # Keep the strict alias for backwards compatibility (used by ace_boot_memory / ace_update_memory)
+    def resolve_project_path_strict(arguments: dict) -> str:
+        return resolve_project_path(arguments, require_explicit=True)
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
