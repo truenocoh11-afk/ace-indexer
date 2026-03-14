@@ -690,25 +690,40 @@ def create_mcp_server():
                 file_path = arguments.get("file_path", "")
                 fmt = arguments.get("format", "list")
                 
-                # Cargar toda la metadata del index para construir el grafo
-                results = indexer.query(project_path, "*", file_pattern=None)
-                all_metas = results.get("metadatas", [[]])[0]
+                # Cargar toda la metadata del index para construir el grafo de forma eficiente
+                indices_dir, _ = indexer._get_paths(project_path)
+                collection = indexer._get_chroma_collection(project_path, indices_dir)
+                if not collection:
+                    return [types.TextContent(type="text", text="❌ Chroma collection not found. Re-index first.")]
+                
+                # Usar get() es más directo que query() para "traer todo"
+                results = collection.get(include=["metadatas"])
+                all_metas = results.get("metadatas", [])
                 
                 graph = MarkovCallGraph()
                 graph.ingest_chroma_metadata(all_metas)
                 
                 abs_path = file_path if os.path.isabs(file_path) else os.path.join(project_path, file_path)
+                # Normalizar separadores para Windows
+                abs_path = abs_path.replace("\\", "/")
+                file_path = file_path.replace("\\", "/")
                 
                 if fmt == "mermaid":
                     return [types.TextContent(type="text", text=graph.to_mermaid())]
                 
-                top = graph.get_top_callees(abs_path, top_n=15)
+                # Intentar con la ruta relativa primero (como guarda ChromaDB)
+                top = graph.get_top_callees(file_path, top_n=15)
                 if not top:
-                    return [types.TextContent(type="text", text=f"❌ No call data for {file_path}. Re-index first.")]
+                    top = graph.get_top_callees(abs_path, top_n=15)
+                if not top:
+                    known = list(graph.transitions.keys())[:5]
+                    hint = f"\nArchivos con calls: {known}" if known else "\n⚠️ Ningún archivo tiene calls. Verifica el skeletonizer."
+                    return [types.TextContent(type="text", text=f"❌ No call data for {file_path}.{hint}")]
                 lines = [f"# Call Graph: {os.path.basename(abs_path)}", "| Callee | Count |", "|---|---|"]
                 for callee, count in top:
                     lines.append(f"| {callee} | {count} |")
                 return [types.TextContent(type="text", text="\n".join(lines))]
+
 
 
 
