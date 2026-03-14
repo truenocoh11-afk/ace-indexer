@@ -200,8 +200,47 @@ def create_mcp_server():
                     },
                     "required": ["memory_type", "content"]
                 }
+            ),
+            types.Tool(
+                name="ace_get_symbol",
+                description="[v1.1] 🔍 Read a specific function or class from disk using its line_map position. Equivalent to LazyLoadingAI's get_function. Provide symbol_name and file_path.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string", "description": "Absolute path (optional)"},
+                        "file_path": {"type": "string", "description": "Absolute or relative path to the file"},
+                        "symbol_name": {"type": "string", "description": "Function or class name to extract"}
+                    },
+                    "required": ["file_path", "symbol_name"]
+                }
+            ),
+            types.Tool(
+                name="ace_manage_index",
+                description="[v1.1] 🗂️ Unified index management: action='status' (health), action='list' (files), action='reindex' (force re-index). Replaces ace_index_status, ace_list_indexed, ace_index_project. project_path is OPTIONAL.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string"},
+                        "action": {"type": "string", "enum": ["status", "list", "reindex"], "description": "status=health, list=files, reindex=force"},
+                        "pattern": {"type": "string", "description": "For action=list, optional glob filter"},
+                        "extra_ignore_dirs": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "required": ["action"]
+                }
             )
         ]
+
+    def _allocate_budget(total_chars: int, n_results: int, boosts: list) -> list:
+        """Distribuye el budget de contexto entre N resultados. Boosted recibe 2x."""
+        if n_results == 0:
+            return []
+        boost_count = sum(1 for b in boosts if b)
+        # base * (n_normal + 2 * n_boosted) = total_chars
+        # base * (n_results - n_boosted + 2 * n_boosted) = total_chars
+        # base * (n_results + n_boosted) = total_chars
+        denominator = (n_results + boost_count)
+        base = total_chars // denominator if denominator > 0 else total_chars
+        return [base * 2 if b else base for b in boosts]
 
     def _format_compact(documents, metadatas, query, project_path, is_usage_block=False):
         """Formatea resultados en TSV ultra-denso. Soporta bloques de dominó."""
@@ -258,7 +297,13 @@ def create_mcp_server():
             rrf_score = meta.get("rrf_score", 0)
             literal = meta.get("literal_match", False)
             conf = "HIGH" if literal and rrf_score > 0.7 else ("MED" if literal or rrf_score > 0.4 else "LOW")
-            snippet_len = min(len(doc), 600)
+            boosts = [m.get("boosted", False) for m in metadatas]
+            budgets = _allocate_budget(8000, len(documents), boosts)
+            # Find index safely if documents is not a list
+            docs_list = list(documents)
+            doc_idx = docs_list.index(doc) if doc in docs_list else 0
+            snippet_limit = budgets[doc_idx] if doc_idx < len(budgets) else 600
+            snippet_len = min(len(doc), snippet_limit)
             lines.append(f"{rel_path}\tcode\t{flags_str}\t{conf}\t{location}\t{snippet_len}")
 
         lines.append("")
@@ -270,7 +315,11 @@ def create_mcp_server():
             except Exception:
                 rel_path = path
             skeleton = meta.get("skeleton", "")
-            limit = 800 if meta.get("boosted", False) else 400
+            boosts = [m.get("boosted", False) for m in metadatas]
+            budgets = _allocate_budget(8000, len(documents), boosts)
+            docs_list = list(documents)
+            doc_idx = docs_list.index(doc) if doc in docs_list else 0
+            limit = budgets[doc_idx] if doc_idx < len(budgets) else 600
             lines.append(f"--- {rel_path} ---")
             # Preferir skeleton (firmas semánticas) sobre recorte ciego
             if skeleton and len(skeleton) > 50:
@@ -465,35 +514,81 @@ def create_mcp_server():
 
                 return [types.TextContent(type="text", text=output)]
 
-            elif name == "ace_index_status":
+            elif name == "ace_get_symbol":
+                import linecache, json
+                file_path = arguments.get("file_path", "")
+                symbol_name = arguments.get("symbol_name", "")
                 project_path = resolve_project_path(arguments)
-                status = indexer.get_index_status(project_path)
                 
-                if status["status"] == "error":
-                    return [types.TextContent(type="text", text=status["message"])]
+                # Resolve relative paths
+                if not os.path.isabs(file_path):
+                    file_path = os.path.join(project_path, file_path)
                 
-                import datetime
-                dt = datetime.datetime.fromtimestamp(status["last_update"]).strftime('%Y-%m-%d %H:%M:%S')
-                output = [
-                    f"📊 Index Status: {project_path}",
-                    f"• Indexed files: {status['indexed_files_count']}",
-                    f"• Last updated: {dt}"
-                ]
-                return [types.TextContent(type="text", text="\n".join(output))]
+                if not os.path.exists(file_path):
+                    return [types.TextContent(type="text", text=f"❌ File not found: {file_path}")]
+                
+                # Get line_map from ChromaDB for this file
+                results = indexer.query(project_path, symbol_name, file_pattern=os.path.basename(file_path))
+                metadatas = results.get("metadatas", [[]])[0]
+                
+                start_line = None
+                for meta in metadatas:
+                    if meta.get("path") == file_path:
+                        line_map_raw = meta.get("line_map", "{}")
+                        try:
+                            line_map = json.loads(line_map_raw) if isinstance(line_map_raw, str) else line_map_raw
+                        except Exception:
+                            line_map = {}
+                        # Find exact or partial match
+                        for k, v in line_map.items():
+                            if k.lower() == symbol_name.lower() or symbol_name.lower() in k.lower():
+                                start_line = v
+                                break
+                        break
+                
+                if start_line is None:
+                    return [types.TextContent(type="text", text=f"❌ Symbol '{symbol_name}' not found in index for {file_path}. Try ace_manage_index(action='reindex') first.")]
+                
+                # Read ~60 lines from start_line
+                lines = []
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                        all_lines = f.readlines()
+                    lines = all_lines[max(0, start_line - 1):start_line + 60]
+                except Exception as e:
+                    return [types.TextContent(type="text", text=f"❌ Read error: {e}")]
+                
+                output = f"# {symbol_name} @ {os.path.relpath(file_path, project_path)}:L{start_line}\n"
+                output += "".join(lines)
+                return [types.TextContent(type="text", text=output)]
 
-            elif name == "ace_list_indexed":
+            elif name == "ace_manage_index":
+                action = arguments.get("action", "status")
                 project_path = resolve_project_path(arguments)
-                pattern = arguments.get("pattern")
-                files = indexer.list_indexed_files(project_path, pattern)
-                file_list = "\n".join(files[:50])
-                return [types.TextContent(type="text", text=f"Indexed files ({len(files)}):\n{file_list}")]
-
-            elif name == "ace_index_project":
-                project_path = resolve_project_path_strict(arguments)
-                force = arguments.get("force", False)
-                extra_ignore_dirs = arguments.get("extra_ignore_dirs")
-                stats = indexer.index_project(project_path, force=force, extra_ignore_dirs=extra_ignore_dirs)
-                return [types.TextContent(type="text", text=f"Project Indexed Successfully.\nStats: {stats}")]
+                
+                if action == "status":
+                    status = indexer.get_index_status(project_path)
+                    if status["status"] == "error":
+                        return [types.TextContent(type="text", text=status["message"])]
+                    import datetime
+                    dt = datetime.datetime.fromtimestamp(status["last_update"]).strftime('%Y-%m-%d %H:%M:%S')
+                    out = [f"📊 Index: {project_path}", f"• Files: {status['indexed_files_count']}", f"• Updated: {dt}"]
+                    if status.get("missing_from_index_count", 0) > 0:
+                        out.append(f"• ⚠️ {status['missing_from_index_count']} unindexed files")
+                    return [types.TextContent(type="text", text="\n".join(out))]
+                
+                elif action == "list":
+                    pattern = arguments.get("pattern", "")
+                    files = indexer.list_indexed_files(project_path, pattern)
+                    file_list = "\n".join(files[:50])
+                    return [types.TextContent(type="text", text=f"Indexed files ({len(files)}):\n{file_list}")]
+                
+                elif action == "reindex":
+                    extra_ignore = arguments.get("extra_ignore_dirs", [])
+                    stats = indexer.index_project(project_path, force=True, extra_ignore_dirs=extra_ignore)
+                    return [types.TextContent(type="text", text=f"Project Indexed Successfully.\nStats: {stats}")]
+                
+                return [types.TextContent(type="text", text=f"❌ Unknown action: {action}")]
 
             elif name == "ace_boot_memory":
                 from core.memory import MemoryManager
