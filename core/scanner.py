@@ -61,7 +61,7 @@ class FileScanner:
         'venv', '.venv', 'env', '.env', 'virtualenv', '.virtualenv',
         # Python cache / test artifacts
         '__pycache__', '.mypy_cache', '.pytest_cache', '.tox', '.cache',
-        'site-packages', 'dist-packages', 'lib', 'lib64',
+        'site-packages', 'dist-packages',
         # Build / dist
         'dist', 'build', 'out', 'bin', 'obj', 'target', 'release', 'debug',
         # Package managers
