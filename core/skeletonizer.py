@@ -5,6 +5,7 @@ import tree_sitter_python
 try:
     import tree_sitter_javascript
     import tree_sitter_typescript
+    import tree_sitter_php
     HAS_MULTI_LANG = True
 except ImportError:
     HAS_MULTI_LANG = False
@@ -22,6 +23,7 @@ class Skeletonizer:
             self.LANG_REGISTRY['.jsx'] = lambda: Language(tree_sitter_javascript.language())
             self.LANG_REGISTRY['.ts'] = lambda: Language(tree_sitter_typescript.language_typescript())
             self.LANG_REGISTRY['.tsx'] = lambda: Language(tree_sitter_typescript.language_tsx())
+            self.LANG_REGISTRY['.php'] = lambda: Language(tree_sitter_php.language_php())
             
         self.fallback_lang = self.LANG_REGISTRY['.py']()
         
@@ -31,6 +33,7 @@ class Skeletonizer:
             '.js': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
             '.ts': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
             '.tsx': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
+            '.php': "(function_call_expression function: (name) @func_name) (member_call_expression name: (name) @func_name)",
         }
         
         # AST Queries to extract inheritance (class bases)
@@ -39,6 +42,7 @@ class Skeletonizer:
             '.js': "(class_definition heritage: (extends_clause (identifier) @base_class))",
             '.ts': "(class_definition heritage: (extends_clause (identifier) @base_class))",
             '.tsx': "(class_definition heritage: (extends_clause (identifier) @base_class))",
+            '.php': "(base_clause (name) @base_class)",
         }
 
     def _get_parser_and_query(self, filepath: str):
@@ -126,7 +130,7 @@ class Skeletonizer:
                         line_map[name_node.text.decode("utf8")] = start + 1
 
                 # Capture class/function definitions (including JS/TS standard declarations)
-                elif node.type in ("function_definition", "async_function_definition", "class_definition", "function_declaration", "generator_function_declaration", "method_definition", "class_declaration"):
+                elif node.type in ("function_definition", "async_function_definition", "class_definition", "function_declaration", "generator_function_declaration", "method_definition", "class_declaration", "method_declaration"):
                     start = node.start_point[0]
                     # Register name -> line (base-1 for LOCATION)
                     name_node = node.child_by_field_name("name")
