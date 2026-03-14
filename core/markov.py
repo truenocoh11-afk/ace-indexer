@@ -15,7 +15,7 @@ class MarkovCallGraph:
         """Alimenta el grafo desde una lista de metadatas de ChromaDB."""
         for meta in metadatas:
             if not meta: continue
-            source_file = meta.get("path", "unknown")
+            source_file = os.path.normpath(meta.get("path", "unknown"))
             calls_raw = meta.get("calls", "[]")
             try:
                 calls = json.loads(calls_raw) if isinstance(calls_raw, str) else (calls_raw or [])
@@ -30,6 +30,7 @@ class MarkovCallGraph:
 
     def get_top_callees(self, source_file: str, top_n: int = 10) -> list[tuple]:
         """Retorna las N funciones más llamadas desde source_file."""
+        source_file = os.path.normpath(source_file)
         counts = self.transitions.get(source_file, {})
         return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:top_n]
 

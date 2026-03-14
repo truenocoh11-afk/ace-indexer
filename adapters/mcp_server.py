@@ -704,9 +704,7 @@ def create_mcp_server():
                 graph.ingest_chroma_metadata(all_metas)
                 
                 abs_path = file_path if os.path.isabs(file_path) else os.path.join(project_path, file_path)
-                # Normalizar separadores para Windows
-                abs_path = abs_path.replace("\\", "/")
-                file_path = file_path.replace("\\", "/")
+                # Delegamos normalización cross-platform a markov.py, evitando corromper la ruta local.
                 
                 if fmt == "mermaid":
                     return [types.TextContent(type="text", text=graph.to_mermaid())]
