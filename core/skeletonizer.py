@@ -125,8 +125,8 @@ class Skeletonizer:
                     if name_node:
                         line_map[name_node.text.decode("utf8")] = start + 1
 
-                # Capture class/function definitions
-                elif node.type in ("function_definition", "async_function_definition", "class_definition"):
+                # Capture class/function definitions (including JS/TS standard declarations)
+                elif node.type in ("function_definition", "async_function_definition", "class_definition", "function_declaration", "generator_function_declaration", "method_definition", "class_declaration"):
                     start = node.start_point[0]
                     # Register name -> line (base-1 for LOCATION)
                     name_node = node.child_by_field_name("name")
@@ -141,7 +141,7 @@ class Skeletonizer:
                             skeleton_lines.append(" " * (indent + 4) + "...")
                             break
                     
-                    if node.type == "class_definition":
+                    if node.type in ("class_definition", "class_declaration"):
                         # Descend into classes to catch methods
                         pass 
                     else:
