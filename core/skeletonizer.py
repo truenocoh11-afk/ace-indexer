@@ -1,16 +1,55 @@
 import os
-from tree_sitter import Language, Parser
+from tree_sitter import Language, Parser, Query, QueryCursor
 import tree_sitter_python
+
+try:
+    import tree_sitter_javascript
+    import tree_sitter_typescript
+    HAS_MULTI_LANG = True
+except ImportError:
+    HAS_MULTI_LANG = False
 
 class Skeletonizer:
     def __init__(self):
-        # In a real setup, we might need to compile languages or use pre-built bindings
-        # For simplicity in this "portable" version, we rely on the python bindings
-        self.PY_LANGUAGE = Language(tree_sitter_python.language())
-        self.parser = Parser()
-        self.parser.language = self.PY_LANGUAGE
+        self.parsers_cache = {}
+        self.queries_cache = {}
+        
+        self.LANG_REGISTRY = {
+            '.py': lambda: Language(tree_sitter_python.language()),
+        }
+        if HAS_MULTI_LANG:
+            self.LANG_REGISTRY['.js'] = lambda: Language(tree_sitter_javascript.language())
+            self.LANG_REGISTRY['.jsx'] = lambda: Language(tree_sitter_javascript.language())
+            self.LANG_REGISTRY['.ts'] = lambda: Language(tree_sitter_typescript.language_typescript())
+            self.LANG_REGISTRY['.tsx'] = lambda: Language(tree_sitter_typescript.language_tsx())
+            
+        self.fallback_lang = self.LANG_REGISTRY['.py']()
+        
+        # AST Queries to extract function calls
+        self.CALL_QUERIES_STR = {
+            '.py': "(call function: (identifier) @func_name) (call function: (attribute attribute: (identifier) @func_name))",
+            '.js': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
+            '.ts': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
+            '.tsx': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
+        }
 
-    def skeletonize(self, code: str) -> tuple[str, dict]:
+    def _get_parser_and_query(self, filepath: str):
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext not in self.LANG_REGISTRY:
+            ext = '.py' # fallback
+            
+        if ext not in self.parsers_cache:
+            lang = self.LANG_REGISTRY[ext]()
+            p = Parser()
+            p.language = lang
+            self.parsers_cache[ext] = p
+            
+            query_str = self.CALL_QUERIES_STR.get(ext, "")
+            self.queries_cache[ext] = Query(lang, query_str) if query_str else None
+            
+        return self.parsers_cache[ext], self.queries_cache[ext]
+
+    def skeletonize(self, code: str, filepath: str = "") -> tuple[str, dict, list]:
         """
         [v0.9.0] Full AST-based skeleton extraction.
         Uses tree-sitter to traverse the parse tree, extracting only structural
@@ -19,10 +58,30 @@ class Skeletonizer:
         Returns (skeleton_str, line_map) where line_map = {"symbol_name": 1based_line}
         """
         try:
-            tree = self.parser.parse(bytes(code, "utf8"))
+            parser, call_query = self._get_parser_and_query(filepath)
+            tree = parser.parse(bytes(code, "utf8"))
             lines = code.splitlines()
             skeleton_lines = []
             line_map = {}  # {"real_function": 3, "RealClass": 5}
+            calls_found = []
+
+            if call_query:
+                try:
+                    cursor = QueryCursor(call_query)
+                    captures = cursor.captures(tree.root_node)
+                    # tree-sitter 0.22+ returns a dict {tag: [nodes]}
+                    if isinstance(captures, dict):
+                        for nodes in captures.values():
+                            for node in nodes:
+                                calls_found.append(node.text.decode("utf8"))
+                    else:
+                        for node, _ in captures:
+                            calls_found.append(node.text.decode("utf8"))
+                except Exception:
+                    pass
+            
+            # Deduplicate calls to save space
+            calls_found = list(dict.fromkeys(calls_found))
 
             def _traverse(node):
                 # Capture import nodes
@@ -62,7 +121,7 @@ class Skeletonizer:
                     _traverse(child)
 
             _traverse(tree.root_node)
-            return "\n".join(skeleton_lines), line_map
+            return "\n".join(skeleton_lines), line_map, calls_found
 
         except Exception:
             # Fallback: safe naive line scan if tree-sitter fails for non-Python files
@@ -75,4 +134,4 @@ class Skeletonizer:
                     if ":" in line:
                         indent = len(line) - len(line.lstrip())
                         skeleton_lines.append(" " * (indent + 4) + "...")
-            return "\n".join(skeleton_lines), {}
+            return "\n".join(skeleton_lines), {}, []
