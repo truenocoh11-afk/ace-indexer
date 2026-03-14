@@ -826,10 +826,12 @@ def create_mcp_server():
                     if any(x in rel.lower() for x in ["main.py", "__main__.py", "cli.py", "index.ts", "index.js", "setup.py", "app."]):
                         entry_points.append(rel)
                     
+                    parse_errors = []
                     try:
                         raw_lmap = m.get("line_map", "{}")
                         lmap = json.loads(raw_lmap)
-                    except Exception:
+                    except Exception as je:
+                        parse_errors.append(f"{rel}: {type(je).__name__}: {je} | raw={repr(raw_lmap[:60])}")
                         lmap = {}
                     
                     global_api.extend([(sym, rel, ln) for sym, ln in lmap.items()])
@@ -910,6 +912,14 @@ def create_mcp_server():
                 lines.append(f"## [DEBUG_KEYS] {all_keys}")
                 lines.append(f"## [DEBUG_RAW_SAMPLE] {raw_sample_val}")
                 lines.append(f"## [DEBUG_SAMPLES] {' | '.join(samples)}")
+                # Show non-empty line_map samples and any parse errors
+                nonempty_samples = [(m.get('path','?'), m.get('line_map','')) for m in code_metas if m.get('line_map') not in (None, '{}')][:3]
+                for p, lm in nonempty_samples:
+                    try:
+                        parsed = json.loads(lm)
+                        lines.append(f"## [DEBUG_NONEMPTY] path={p[-40:]} parsed_keys={list(parsed.keys())[:5]}")
+                    except Exception as je:
+                        lines.append(f"## [DEBUG_NONEMPTY_ERR] path={p[-40:]} err={je} raw={repr(lm[:60])}")
 
                 return [types.TextContent(type="text", text="\n".join(lines))]
             
