@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Add core path
 current_dir = Path(__file__).resolve().parent
-sys.path.append(str(current_dir))
+sys.path.append(str(current_dir.parent))
 
 from core.indexer import Indexer
 

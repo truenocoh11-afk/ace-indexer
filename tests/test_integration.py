@@ -24,7 +24,8 @@ def test_ace():
         print("[Test] Server failed to start.")
         sys.exit(1)
 
-    project_path = os.getcwd() # Should be ace_engine root
+    import pathlib
+    project_path = str(pathlib.Path(__file__).parent.parent) # Should be ace_engine root
     print(f"[Test] Triggering Indexing for: {project_path}")
     
     # Trigger Indexing

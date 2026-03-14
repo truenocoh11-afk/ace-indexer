@@ -32,6 +32,14 @@ class Skeletonizer:
             '.ts': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
             '.tsx': "(call_expression function: (identifier) @func_name) (call_expression function: (member_expression property: (property_identifier) @func_name))",
         }
+        
+        # AST Queries to extract inheritance (class bases)
+        self.INHERIT_QUERIES_STR = {
+            '.py': "(class_definition superinterfaces: (argument_list (identifier) @base_class))",
+            '.js': "(class_definition heritage: (extends_clause (identifier) @base_class))",
+            '.ts': "(class_definition heritage: (extends_clause (identifier) @base_class))",
+            '.tsx': "(class_definition heritage: (extends_clause (identifier) @base_class))",
+        }
 
     def _get_parser_and_query(self, filepath: str):
         ext = os.path.splitext(filepath)[1].lower()
@@ -47,9 +55,12 @@ class Skeletonizer:
             query_str = self.CALL_QUERIES_STR.get(ext, "")
             self.queries_cache[ext] = Query(lang, query_str) if query_str else None
             
-        return self.parsers_cache[ext], self.queries_cache[ext]
+            inherit_str = self.INHERIT_QUERIES_STR.get(ext, "")
+            self.queries_cache[ext + "_inherit"] = Query(lang, inherit_str) if inherit_str else None
+            
+        return self.parsers_cache[ext], self.queries_cache[ext], self.queries_cache.get(ext + "_inherit")
 
-    def skeletonize(self, code: str, filepath: str = "") -> tuple[str, dict, list]:
+    def skeletonize(self, code: str, filepath: str = "") -> tuple[str, dict, list, list]:
         """
         [v0.9.0] Full AST-based skeleton extraction.
         Uses tree-sitter to traverse the parse tree, extracting only structural
@@ -58,7 +69,7 @@ class Skeletonizer:
         Returns (skeleton_str, line_map) where line_map = {"symbol_name": 1based_line}
         """
         try:
-            parser, call_query = self._get_parser_and_query(filepath)
+            parser, call_query, inherit_query = self._get_parser_and_query(filepath)
             tree = parser.parse(bytes(code, "utf8"))
             lines = code.splitlines()
             skeleton_lines = []
@@ -82,6 +93,22 @@ class Skeletonizer:
             
             # Deduplicate calls to save space
             calls_found = list(dict.fromkeys(calls_found))
+            
+            inherits_found = []
+            if inherit_query:
+                try:
+                    cursor = QueryCursor(inherit_query)
+                    captures = cursor.captures(tree.root_node)
+                    if isinstance(captures, dict):
+                        for nodes in captures.values():
+                            for node in nodes:
+                                inherits_found.append(node.text.decode("utf8"))
+                    else:
+                        for node, _ in captures:
+                            inherits_found.append(node.text.decode("utf8"))
+                except Exception:
+                    pass
+            inherits_found = list(dict.fromkeys(inherits_found))
 
             def _traverse(node):
                 # Capture import nodes
@@ -121,7 +148,7 @@ class Skeletonizer:
                     _traverse(child)
 
             _traverse(tree.root_node)
-            return "\n".join(skeleton_lines), line_map, calls_found
+            return "\n".join(skeleton_lines), line_map, calls_found, inherits_found
 
         except Exception:
             # Fallback: safe naive line scan if tree-sitter fails for non-Python files
@@ -134,4 +161,10 @@ class Skeletonizer:
                     if ":" in line:
                         indent = len(line) - len(line.lstrip())
                         skeleton_lines.append(" " * (indent + 4) + "...")
-            return "\n".join(skeleton_lines), {}, []
+            return "\n".join(skeleton_lines), {}, [], []
+
+    def _traverse(self, node, lines, skeleton_lines, line_map):
+        # ... (refactor para usar el método si prefieres, pero mantengamos el inline por consistencia)
+        pass
+
+# Update the main skeletonize return to include inherits_found

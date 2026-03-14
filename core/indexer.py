@@ -301,7 +301,7 @@ class Indexer:
                 try:
                     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
-                    skeleton, line_map, calls = self.skeletonizer.skeletonize(content, filepath)
+                    skeleton, line_map, calls, inherits = self.skeletonizer.skeletonize(content, filepath)
                     docs_buf.append(content)
                     is_doc = filepath.endswith((".md", ".txt", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".env"))
                     metas_buf.append({
@@ -310,6 +310,7 @@ class Indexer:
                         "skeleton": skeleton,
                         "line_map": json.dumps(line_map),   # {"real_function": 3, ...}
                         "calls": json.dumps(calls),         # ["functionA", "methodB"]
+                        "inherits": json.dumps(inherits),   # ["BaseClassA", "InterfaceB"]
                         "type": "doc" if is_doc else "code",
                         "ident_bag": " ".join(self._extract_identifiers(content))
                     })

@@ -3,12 +3,12 @@ import os
 from pathlib import Path
 
 # Add parent dir to path to import ace_engine
-sys.path.append(str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent.parent))
 
 from core.memory import MemoryManager
 
 def test_memory():
-    project_path = str(Path(__file__).parent.parent)
+    project_path = str(Path(__file__).parent.parent.parent)
     print(f"Testing Memory in: {project_path}")
     
     manager = MemoryManager(project_path)

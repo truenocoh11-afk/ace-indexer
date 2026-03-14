@@ -3,10 +3,13 @@
 ACE is a lightweight, local "Sidecar" that powers your AI Agents (Gemini, Claude, Open Code) with deep code understanding.
 It creates a **Search Engine** for your code, running entirely on your machine.
 
+**Current Version**: v1.2.0 (Phase 3: Advanced Intelligence)
+
 ## ✨ Features
 *   **Hybrid RAG**: Combines Semantic Search (Vectors) with Keyword Search.
-*   **Skeletonization**: Reads code structure (Classes/Funcs) without waisting tokens on implementation details.
-*   **Portable**: Just copy this folder anywhere.
+*   **Skeletonization**: Reads code structure (Classes/Funcs) without wasting tokens on implementation details.
+*   **Call Graphs & Markov**: Analyzes call frequencies and generates Mermaid diagrams.
+*   **Inheritance Tracing**: Deeply understands class hierarchies via AST.
 *   **Zero-Config**: Indices are stored locally in each project's `.ace` folder.
 
 ## 📦 Installation
@@ -14,7 +17,7 @@ It creates a **Search Engine** for your code, running entirely on your machine.
 2.  **Setup**:
     Double-click `setup.bat` to recreate the environment.
 3.  **Start**:
-    Double-click `start.bat` to run the server. keep this window open!
+    Double-click `start.bat` to run the server. Keep this window open!
 
 ## 🔌 Integration (MCP)
 ACE uses the **Model Context Protocol (MCP)**. You can add it to any compatible IDE or Agent.
@@ -39,9 +42,10 @@ Add this to your MCP Configuration file:
 
 ## 🛠 Usage
 Once connected, your Agent will have access to these tools:
-*   `ace_search_code(query, project_path)`: Finds code relevant to your question.
-*   `ace_read_skeleton(file_path)`: Reads the "shape" of a file to save tokens.
-*   `ace_index_project(project_path)`: Forces a re-scan.
+*   `ace_search_code_compact`: High-density search (recommended).
+*   `ace_call_graph`: Generates call graphs and dependency visualizations.
+*   `ace_get_symbol`: Direct retrieval of function/class logic.
+*   `ace_manage_index`: Unified tool for status, listing, and reindexing.
 
 ## 📂 Data Storage
 ACE stores its index hidden inside your project folder:

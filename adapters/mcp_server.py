@@ -227,6 +227,19 @@ def create_mcp_server():
                     },
                     "required": ["action"]
                 }
+            ),
+            types.Tool(
+                name="ace_call_graph",
+                description="[v1.2 Fase 3] 🕸️ Show Call Graph for a file. Returns top callees and Mermaid diagram. Powered by Markov chains over ChromaDB calls metadata.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string", "description": "Absolute path (optional)"},
+                        "file_path": {"type": "string", "description": "File to analyze"},
+                        "format": {"type": "string", "enum": ["list", "mermaid"], "default": "list"}
+                    },
+                    "required": ["file_path"]
+                }
             )
         ]
 
@@ -670,6 +683,32 @@ def create_mcp_server():
                 ingest_stats = indexer.index_remote_data(project_path, data)
                 
                 return [types.TextContent(type="text", text=f"✅ Remote Data Ingested for '{env_name}'.\nFiles indexed: {ingest_stats['indexed']}\nAll remote snippets are now searchable locally.")]
+
+            elif name == "ace_call_graph":
+                from core.markov import MarkovCallGraph
+                project_path = resolve_project_path(arguments)
+                file_path = arguments.get("file_path", "")
+                fmt = arguments.get("format", "list")
+                
+                # Cargar toda la metadata del index para construir el grafo
+                results = indexer.query(project_path, "*", file_pattern=None)
+                all_metas = results.get("metadatas", [[]])[0]
+                
+                graph = MarkovCallGraph()
+                graph.ingest_chroma_metadata(all_metas)
+                
+                abs_path = file_path if os.path.isabs(file_path) else os.path.join(project_path, file_path)
+                
+                if fmt == "mermaid":
+                    return [types.TextContent(type="text", text=graph.to_mermaid())]
+                
+                top = graph.get_top_callees(abs_path, top_n=15)
+                if not top:
+                    return [types.TextContent(type="text", text=f"❌ No call data for {file_path}. Re-index first.")]
+                lines = [f"# Call Graph: {os.path.basename(abs_path)}", "| Callee | Count |", "|---|---|"]
+                for callee, count in top:
+                    lines.append(f"| {callee} | {count} |")
+                return [types.TextContent(type="text", text="\n".join(lines))]
 
 
 

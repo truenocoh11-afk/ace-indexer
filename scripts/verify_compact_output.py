@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Add core path
 current_dir = Path(__file__).resolve().parent
-sys.path.append(str(current_dir))
+sys.path.append(str(current_dir.parent))
 
 from core.indexer import Indexer
 
@@ -73,7 +73,7 @@ def _format_compact(documents, metadatas, query, project_path, is_usage_block=Fa
 
 def test_compact_output_format():
     print("\n--- Testing Compact Output Format (CONF column & Telemetry) ---")
-    project_path = str(Path(current_dir).parent)
+    project_path = str(Path(current_dir).parent.parent)
     indexer = Indexer()
     
     # 1. Search for "Indexer" to match the class name and trigger line_map lookup

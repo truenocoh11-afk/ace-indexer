@@ -1,0 +1,4 @@
+[Indexer] Classified query 'def search' as: literal
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+
+[QUERY PROFILE] Total 0.164s | DB Queries: 0.163s | Scoring: 0.001s | Disk/Build: 0.000s

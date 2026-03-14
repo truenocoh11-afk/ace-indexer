@@ -3,7 +3,9 @@ import json
 import os
 
 def test_mcp_connection():
-    script_path = os.path.join(os.getcwd(), "run_mcp.bat")
+    # Go up one level from the tests directory to the project root
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    script_path = os.path.join(repo_root, "run_mcp.bat")
     
     print(f"[Test] Launching MCP: {script_path}")
     
