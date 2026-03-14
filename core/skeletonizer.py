@@ -35,7 +35,7 @@ class Skeletonizer:
         
         # AST Queries to extract inheritance (class bases)
         self.INHERIT_QUERIES_STR = {
-            '.py': "(class_definition superinterfaces: (argument_list (identifier) @base_class))",
+            '.py': "(class_definition superclasses: (argument_list (identifier) @base_class))",
             '.js': "(class_definition heritage: (extends_clause (identifier) @base_class))",
             '.ts': "(class_definition heritage: (extends_clause (identifier) @base_class))",
             '.tsx': "(class_definition heritage: (extends_clause (identifier) @base_class))",
@@ -53,10 +53,16 @@ class Skeletonizer:
             self.parsers_cache[ext] = p
             
             query_str = self.CALL_QUERIES_STR.get(ext, "")
-            self.queries_cache[ext] = Query(lang, query_str) if query_str else None
+            try:
+                self.queries_cache[ext] = Query(lang, query_str) if query_str else None
+            except Exception:
+                self.queries_cache[ext] = None
             
             inherit_str = self.INHERIT_QUERIES_STR.get(ext, "")
-            self.queries_cache[ext + "_inherit"] = Query(lang, inherit_str) if inherit_str else None
+            try:
+                self.queries_cache[ext + "_inherit"] = Query(lang, inherit_str) if inherit_str else None
+            except Exception:
+                self.queries_cache[ext + "_inherit"] = None
             
         return self.parsers_cache[ext], self.queries_cache[ext], self.queries_cache.get(ext + "_inherit")
 
@@ -80,7 +86,6 @@ class Skeletonizer:
                 try:
                     cursor = QueryCursor(call_query)
                     captures = cursor.captures(tree.root_node)
-                    # tree-sitter 0.22+ returns a dict {tag: [nodes]}
                     if isinstance(captures, dict):
                         for nodes in captures.values():
                             for node in nodes:
@@ -88,8 +93,8 @@ class Skeletonizer:
                     else:
                         for node, _ in captures:
                             calls_found.append(node.text.decode("utf8"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[DEBUG AST CALLS] error: {e}")
             
             # Deduplicate calls to save space
             calls_found = list(dict.fromkeys(calls_found))
@@ -106,8 +111,8 @@ class Skeletonizer:
                     else:
                         for node, _ in captures:
                             inherits_found.append(node.text.decode("utf8"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[DEBUG AST INHERITS] error: {e}")
             inherits_found = list(dict.fromkeys(inherits_found))
 
             def _traverse(node):
