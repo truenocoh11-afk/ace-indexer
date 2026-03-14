@@ -541,6 +541,9 @@ def create_mcp_server():
                 if not os.path.isabs(file_path):
                     file_path = os.path.join(project_path, file_path)
                 
+                # Normalize to forward slashes for index comparison
+                file_path = file_path.replace("\\", "/")
+                
                 if not os.path.exists(file_path):
                     return [types.TextContent(type="text", text=f"❌ File not found: {file_path}")]
                 
@@ -708,6 +711,10 @@ def create_mcp_server():
                 graph.ingest_chroma_metadata(all_metas)
                 
                 abs_path = file_path if os.path.isabs(file_path) else os.path.join(project_path, file_path)
+                # Normalize to forward slashes for matching ChromaDB-sourced metadata
+                abs_path = abs_path.replace("\\", "/")
+                file_path = file_path.replace("\\", "/")
+                
                 # Delegamos normalización cross-platform a markov.py, evitando corromper la ruta local.
                 
                 if fmt == "mermaid":
