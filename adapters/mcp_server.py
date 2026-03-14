@@ -257,6 +257,10 @@ def create_mcp_server():
                             "enum": ["full", "modules", "dependencies", "entry_points", "public_api"],
                             "default": "modules",
                             "description": "Information to focus on. 'full' consumes more tokens."
+                        },
+                        "debug": {
+                            "type": "boolean",
+                            "description": "If true, append diagnostic debug information to the output."
                         }
                     }
                 }
@@ -889,39 +893,40 @@ def create_mcp_server():
                         lines.append(f"{sym}\t{rel}\tL{ln}")
                     lines.append("")
                 
-                # TEMP DIAGNOSTIC: Remove after confirming server version
-                lmap_none = sum(1 for m in code_metas if m.get("line_map") is None)
-                lmap_empty = sum(1 for m in code_metas if m.get("line_map") == "{}")
-                lmap_has = sum(1 for m in code_metas if m.get("line_map") not in (None, "{}"))
-                samples = []
-                for m in code_metas[:5]:
-                    raw = m.get("line_map")
-                    samples.append(f"type={type(raw).__name__} len={len(raw) if raw else 0} val={repr(raw[:80]) if raw else 'None'}")
-                # Also check what keys exist in embedding_metadata
-                try:
-                    conn2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-                    c2 = conn2.cursor()
-                    c2.execute("SELECT DISTINCT key FROM embedding_metadata LIMIT 20")
-                    all_keys = [r[0] for r in c2.fetchall()]
-                    c2.execute("SELECT string_value FROM embedding_metadata WHERE key='line_map' AND string_value IS NOT NULL AND string_value != '{}' LIMIT 1")
-                    raw_sample = c2.fetchone()
-                    raw_sample_val = repr(raw_sample[0][:120]) if raw_sample else "NO_ROWS"
-                    conn2.close()
-                except Exception as ex:
-                    all_keys = [f"ERR: {ex}"]
-                    raw_sample_val = "ERR"
-                lines.append(f"## [DEBUG] code_metas={len(code_metas)} global_api={len(global_api)} lmap_none={lmap_none} lmap_empty={lmap_empty} lmap_has={lmap_has}")
-                lines.append(f"## [DEBUG_KEYS] {all_keys}")
-                lines.append(f"## [DEBUG_RAW_SAMPLE] {raw_sample_val}")
-                lines.append(f"## [DEBUG_SAMPLES] {' | '.join(samples)}")
-                # Show non-empty line_map samples and any parse errors
-                nonempty_samples = [(m.get('path','?'), m.get('line_map','')) for m in code_metas if m.get('line_map') not in (None, '{}')][:3]
-                for p, lm in nonempty_samples:
+                # Optional diagnostic block
+                if arguments.get("debug", False):
+                    lmap_none = sum(1 for m in code_metas if m.get("line_map") is None)
+                    lmap_empty = sum(1 for m in code_metas if m.get("line_map") == "{}")
+                    lmap_has = sum(1 for m in code_metas if m.get("line_map") not in (None, "{}"))
+                    samples = []
+                    for m in code_metas[:5]:
+                        raw = m.get("line_map")
+                        samples.append(f"type={type(raw).__name__} len={len(raw) if raw else 0} val={repr(raw[:80]) if raw else 'None'}")
+                    # Also check what keys exist in embedding_metadata
                     try:
-                        parsed = json.loads(lm)
-                        lines.append(f"## [DEBUG_NONEMPTY] path={p[-40:]} parsed_keys={list(parsed.keys())[:5]}")
-                    except Exception as je:
-                        lines.append(f"## [DEBUG_NONEMPTY_ERR] path={p[-40:]} err={je} raw={repr(lm[:60])}")
+                        conn2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                        c2 = conn2.cursor()
+                        c2.execute("SELECT DISTINCT key FROM embedding_metadata LIMIT 20")
+                        all_keys = [r[0] for r in c2.fetchall()]
+                        c2.execute("SELECT string_value FROM embedding_metadata WHERE key='line_map' AND string_value IS NOT NULL AND string_value != '{}' LIMIT 1")
+                        raw_sample = c2.fetchone()
+                        raw_sample_val = repr(raw_sample[0][:120]) if raw_sample else "NO_ROWS"
+                        conn2.close()
+                    except Exception as ex:
+                        all_keys = [f"ERR: {ex}"]
+                        raw_sample_val = "ERR"
+                    lines.append(f"## [DEBUG] code_metas={len(code_metas)} global_api={len(global_api)} lmap_none={lmap_none} lmap_empty={lmap_empty} lmap_has={lmap_has}")
+                    lines.append(f"## [DEBUG_KEYS] {all_keys}")
+                    lines.append(f"## [DEBUG_RAW_SAMPLE] {raw_sample_val}")
+                    lines.append(f"## [DEBUG_SAMPLES] {' | '.join(samples)}")
+                    # Show non-empty line_map samples and any parse errors
+                    nonempty_samples = [(m.get('path','?'), m.get('line_map','')) for m in code_metas if m.get('line_map') not in (None, '{}')][:3]
+                    for p, lm in nonempty_samples:
+                        try:
+                            parsed = json.loads(lm)
+                            lines.append(f"## [DEBUG_NONEMPTY] path={p[-40:]} parsed_keys={list(parsed.keys())[:5]}")
+                        except Exception as je:
+                            lines.append(f"## [DEBUG_NONEMPTY_ERR] path={p[-40:]} err={je} raw={repr(lm[:60])}")
 
                 return [types.TextContent(type="text", text="\n".join(lines))]
             
