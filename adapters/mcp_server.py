@@ -759,6 +759,18 @@ def create_mcp_server():
                     known = list(graph.transitions.keys())[:5]
                     hint = f"\nArchivos con calls: {known}" if known else "\n⚠️ Ningún archivo tiene calls. Verifica el skeletonizer."
                     return [types.TextContent(type="text", text=f"❌ No call data for {file_path}.{hint}")]
+                
+                return [types.TextContent(type="text", text="\n".join([f"{c}: {p*100:.1f}%" for c, p in top]))]
+
+            elif name == "ace_architecture_overview":
+                project_path = resolve_project_path(arguments)
+                focus = arguments.get("focus", "full")
+                
+                indices_dir, _ = indexer._get_paths(project_path)
+                collection = indexer._store.get_collection(project_path, indices_dir)
+                if not collection:
+                    return [types.TextContent(type="text", text="❌ Chroma collection not found. Re-index first.")]
+                
                 total_items = collection.count()
                 if total_items == 0:
                     return [types.TextContent(type="text", text="❌ Index is empty. Execute ace_manage_index(action='reindex')")]
@@ -834,7 +846,6 @@ def create_mcp_server():
                     lines.append("## [DEPS] (Cross-module calls)")
                     lines.append("FROM_MODULE\tTO_MODULE")
                     for src, tgts in sorted(deps.items()):
-                        # Convert to list/string safely
                         lines.append(f"{src}\t{', '.join(sorted(list(tgts)))}")
                     lines.append("")
                 
@@ -847,7 +858,6 @@ def create_mcp_server():
                 if focus in ["full", "public_api"]:
                     lines.append("## [PUBLIC_API] (Top 50 symbols)")
                     lines.append("SYMBOL\tFILE\tLINE")
-                    # Orden simple alfabético para dar una muestra (el full dump arruinaría el context window)
                     for sym, rel, ln in sorted(global_api)[:50]:
                         lines.append(f"{sym}\t{rel}\tL{ln}")
                     lines.append("")
