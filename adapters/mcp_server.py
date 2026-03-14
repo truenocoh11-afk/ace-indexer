@@ -885,6 +885,9 @@ def create_mcp_server():
                         lines.append(f"{sym}\t{rel}\tL{ln}")
                     lines.append("")
                 
+                # TEMP DIAGNOSTIC: Remove after confirming server version
+                lines.append(f"## [DEBUG] code_metas={len(code_metas)} global_api={len(global_api)} db_path={db_path}")
+
                 return [types.TextContent(type="text", text="\n".join(lines))]
             
         except Exception as e:
