@@ -8,11 +8,11 @@ from pathlib import Path
 current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir.parent))
 
-from core.indexer import Indexer
+from core.search_engine import SearchEngine
 
 def test_query_classification():
     print("\n--- Testing Query Classification ---")
-    idx = Indexer()
+    engine = SearchEngine()
     
     cases = [
         ("indexer.py", "literal"),
@@ -29,7 +29,7 @@ def test_query_classification():
     
     passed = 0
     for q, expected in cases:
-        result = idx._classify_query(q)
+        result = engine.classify_query(q)
         if result == expected:
             print(f"✅ '{q}' -> {result}")
             passed += 1
