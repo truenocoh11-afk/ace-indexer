@@ -39,6 +39,8 @@ def create_mcp_server():
         path = arguments.get("project_path")
         
         if path:
+            # Normalize to forward slashes for ChromaDB consistency (especially on Windows)
+            path = path.replace("\\", "/")
             state["last_project_path"] = path
             return path
         
