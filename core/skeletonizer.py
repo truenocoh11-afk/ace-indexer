@@ -98,7 +98,8 @@ class Skeletonizer:
                         for node, _ in captures:
                             calls_found.append(node.text.decode("utf8"))
                 except Exception as e:
-                    print(f"[DEBUG AST CALLS] error: {e}")
+                    import sys
+                    sys.stderr.write(f"[DEBUG AST CALLS] error: {e}\n")
             
             # Deduplicate calls to save space
             calls_found = list(dict.fromkeys(calls_found))
@@ -116,7 +117,8 @@ class Skeletonizer:
                         for node, _ in captures:
                             inherits_found.append(node.text.decode("utf8"))
                 except Exception as e:
-                    print(f"[DEBUG AST INHERITS] error: {e}")
+                    import sys
+                    sys.stderr.write(f"[DEBUG AST INHERITS] error: {e}\n")
             inherits_found = list(dict.fromkeys(inherits_found))
 
             def _traverse(node):
@@ -238,7 +240,8 @@ class Skeletonizer:
         diagnostics = []
         try:
             language = self._get_language(filepath)
-            print(f"[DEBUG scan_blind_spots] filepath: {filepath}, language: {language}")
+            import sys
+            sys.stderr.write(f"[DEBUG scan_blind_spots] filepath: {filepath}, language: {language}\n")
             if not language:
                 return []
 
