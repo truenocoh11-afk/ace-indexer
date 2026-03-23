@@ -115,39 +115,51 @@ class FileScanner:
 
     def scan_files(self, project_path: str, known_hashes: dict, force: bool = False, extra_ignore_dirs: list = None):
         """Walk project files and detect changes/deletions."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
         new_hashes = {}
         files_to_index = []
         ids_to_delete = []
         
         gitignore = GitignoreParser(project_path)
         blocked_effective = self.BLOCKED_DIRS | set(extra_ignore_dirs or [])
-
+        
+        # Phase 3: Parallel Hashing
+        # 1. Collect all valid files first
+        all_eligible_paths = []
         for root, dirs, files in os.walk(project_path):
-            # Prune directories
             dirs[:] = [d for d in dirs if d not in blocked_effective]
-            
             if gitignore.match(root):
                 dirs[:] = []
                 continue
 
             for file in files:
-                filepath = os.path.join(root, file).replace("\\", "/") # Universal paths
+                filepath = os.path.join(root, file).replace("\\", "/")
                 
                 if self.should_ignore(filepath, gitignore):
                     continue
                 
-                # Whitelist Extensions
                 if not file.endswith((
                     ".html", ".htm", ".css", ".scss", ".less", ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte",
                     ".py", ".php", ".rb", ".go", ".java", ".cs", ".rs", ".kt", ".swift", ".dart", ".sh",
                     ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".env", ".sql", ".md", ".txt"
                 )): continue
                 
-                current_hash = self.compute_file_hash(filepath)
-                new_hashes[filepath] = current_hash
-                
-                if force or known_hashes.get(filepath) != current_hash:
-                    files_to_index.append(filepath)
+                all_eligible_paths.append(filepath)
+
+        # 2. Hash in parallel
+        sys.stderr.write(f"[Scanner] Hashing {len(all_eligible_paths)} files in parallel...\n")
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            future_to_path = {executor.submit(self.compute_file_hash, path): path for path in all_eligible_paths}
+            for future in as_completed(future_to_path):
+                filepath = future_to_path[future]
+                try:
+                    current_hash = future.result()
+                    new_hashes[filepath] = current_hash
+                    if force or known_hashes.get(filepath) != current_hash:
+                        files_to_index.append(filepath)
+                except Exception as e:
+                    sys.stderr.write(f"[Scanner] Error hashing {filepath}: {e}\n")
         
         # Detect deleted files
         for path in known_hashes:

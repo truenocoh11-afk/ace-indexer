@@ -3,6 +3,7 @@ import re
 import fnmatch
 import sys
 import json
+from core.exact_search import TrigramIndex
 
 class SearchEngine:
     def __init__(self):
@@ -226,26 +227,53 @@ class SearchEngine:
     def grep_search(self, project_path: str, query_text: str, file_pattern: str = None, collection=None, workspace_only: bool = True) -> list:
         matches = []
         if collection is None:
-            # Note: Indexer will have to provide the list of files to search if collection is None
-            # or we might want to keep the disk fallback logic more generic here.
-            # For now, let's keep it similar to original but acknowledging it needs the collection.
             return []
 
         try:
+            # Phase 5: Trigram Index Lookup 
+            # Derive DB path from collection persist path if possible
+            # Standard ACE path: <indices>/<project_hash>/chroma_db
+            try:
+                persist_path = collection._client._server.settings.persist_directory
+                trigram_db = os.path.join(os.path.dirname(persist_path), "trigram_index.db")
+            except:
+                # Fallback to a default location if derivation fails
+                indices_root = os.path.join(os.path.expanduser("~"), ".ace", "indices")
+                import hashlib
+                project_hash = hashlib.sha256(project_path.encode()).hexdigest()[:12]
+                trigram_db = os.path.join(indices_root, project_hash, "trigram_index.db")
+
             where_meta = {"remote": False} if workspace_only else None
-            res = collection.get(
-                where_document={"$contains": query_text},
-                where=where_meta,
-                include=["metadatas"]
-            )
+            
+            if len(query_text) < 3:
+                # Phase 6: Fallback for short queries where trigram index fails
+                res = collection.get(
+                    where_document={"$contains": query_text},
+                    where=where_meta,
+                    include=["metadatas"]
+                )
+            else:
+                index = TrigramIndex(trigram_db)
+                candidate_ids = index.find_candidates(query_text)
+                
+                if not candidate_ids:
+                    return []
+
+                # Fetch metadatas only for candidate IDs
+                res = collection.get(
+                    ids=candidate_ids,
+                    where=where_meta,
+                    include=["metadatas"]
+                )
+            
             for mid, meta in zip(res["ids"], res["metadatas"]):
                 path = meta.get("path", mid)
                 is_remote = meta.get("remote", False)
                 if file_pattern and not self.matches_file_pattern(path, project_path, file_pattern):
                     continue
-                matches.append({"id": mid, "remote": is_remote, "line": 0})
+                matches.append({"id": mid, "remote": is_remote, "line": meta.get("line", 0)})
         except Exception as e:
-            sys.stderr.write(f"[SearchEngine] where_document search failed: {e}\n")
+            sys.stderr.write(f"[SearchEngine] Trigram grep search failed: {e}\n")
             return []
 
         return matches

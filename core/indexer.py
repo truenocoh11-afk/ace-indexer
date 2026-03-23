@@ -109,6 +109,12 @@ class Indexer:
             files = [f for f in files if self._engine.matches_file_pattern(f, project_path, pattern)]
         return files
 
+    def _resolve_filepath(self, doc_id: str) -> str:
+        """Extracts the actual file path from a potentially complex chunk ID (path::symbol::line)."""
+        if "::" in doc_id and not doc_id.startswith("remote://"):
+            return doc_id.split("::")[0]
+        return doc_id
+
     def query(self, project_path: str, query_text: str, n_results: int = 5, file_pattern: str = None, workspace_only: bool = True):
         t_start = time.time()
         indices_dir, hashes_path = self._get_paths(project_path)
@@ -159,7 +165,7 @@ class Indexer:
             try:
                 v_res = collection.query(query_texts=[query_text], n_results=n_results * 5, where={"remote": False} if workspace_only else None)
                 for vid in v_res.get("ids", [[]])[0]:
-                    if self._engine.matches_file_pattern(vid, project_path, file_pattern):
+                    if self._engine.matches_file_pattern(self._resolve_filepath(vid), project_path, file_pattern):
                         vector_results.append({"id": vid})
             except Exception: pass
             
@@ -218,14 +224,15 @@ class Indexer:
                 is_remote = fm_item["remote"] if fm_item else doc_id.startswith("remote://")
                 
                 if not is_remote:
-                    with open(doc_id, "r", encoding="utf-8", errors="ignore") as f:
+                    resolved_path = self._resolve_filepath(doc_id)
+                    with open(resolved_path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
-                    if not fm_item and self._engine.is_low_quality(content, doc_id): continue
+                    if not fm_item and self._engine.is_low_quality(content, resolved_path): continue
                     
                     meta_entry = metadatas_lookup.get(doc_id, {})
                     sk = meta_entry.get("skeleton", "")
                     lm = meta_entry.get("line_map", "{}")
-                    display_path = doc_id
+                    display_path = meta_entry.get("path", resolved_path)
                     env = None
                     
                     # Line match tracking
@@ -246,7 +253,8 @@ class Indexer:
                 res_metas.append({
                     "path": display_path, "boosted": bool(fm_item), "remote": is_remote, "env": env,
                     "rrf_score": rrf_scores[doc_id], "line": match_line, "skeleton": sk, "line_map": lm,
-                    "type": metadatas_lookup.get(doc_id, {}).get("type", "code")
+                    "type": metadatas_lookup.get(doc_id, {}).get("type", "code"),
+                    "chunk_id": doc_id
                 })
                 res_docs.append(content)
             except Exception: continue

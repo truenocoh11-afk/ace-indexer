@@ -268,13 +268,22 @@ def create_mcp_server():
                 rel_path = os.path.relpath(path, project_path)
             except Exception:
                 rel_path = path
+                
+            chunk_id = meta.get("chunk_id", "")
+            if chunk_id and "::" in chunk_id:
+                chunks_parts = chunk_id.split("::")
+                id_badge = f"::{chunks_parts[-2]}::{chunks_parts[-1]}" if len(chunks_parts) > 2 else f" ({chunk_id})"
+            else:
+                id_badge = ""
+                
             skeleton = meta.get("skeleton", "")
             boosts = [m.get("boosted", False) for m in metadatas]
             budgets = _allocate_budget(8000, len(documents), boosts)
             docs_list = list(documents)
             doc_idx = docs_list.index(doc) if doc in docs_list else 0
             limit = budgets[doc_idx] if doc_idx < len(budgets) else 600
-            lines.append(f"--- {rel_path} ---")
+            
+            lines.append(f"--- {rel_path}{id_badge} ---")
             # Preferir skeleton (firmas semánticas) sobre recorte ciego
             if skeleton and len(skeleton) > 50:
                 lines.append(skeleton[:limit])
@@ -337,12 +346,37 @@ def create_mcp_server():
                         is_literal = meta.get('literal_match', False)
                         is_remote = meta.get('remote', False)
                         env = meta.get('env')
+                        line = meta.get('line', 0)
+                        skeleton = meta.get('skeleton', '')
+                        
                         match_type = " [LITERAL MATCH] ✅" if is_literal else " [SEMANTIC ONLY] 🧠"
                         remote_badge = f" [REMOTE: {env}] 🌐" if is_remote else ""
                         priority = " [PRIORITY]" if is_boosted else ""
+                        
                         text_output.append(f"--- File: {path}{remote_badge}{match_type}{priority} ---")
-                        if is_remote: text_output.append("💡 Remote snippet. Use SSH to view full content.")
-                        text_output.append(doc[:3000] if is_boosted else doc[:1500])
+                        if is_remote:
+                            text_output.append("💡 Remote snippet. Use SSH to view full content.")
+                        
+                        # Phase 1: Intelligent Snippet (Skeleton + Context)
+                        snippet = ""
+                        if skeleton:
+                            # Use first 800 chars of skeleton for structural overview
+                            snippet += f"[SKELETON]\n{skeleton[:800]}\n"
+                        
+                        if line > 0 and not is_remote:
+                            # Extract ±10 lines context
+                            try:
+                                content_lines = doc.splitlines()
+                                start = max(0, line - 11)
+                                end = min(len(content_lines), line + 10)
+                                context = "\n".join([f"{i+1}: {l}" for i, l in enumerate(content_lines[start:end])])
+                                snippet += f"\n[CONTEXT L{line}]\n{context}\n"
+                            except: pass
+                        
+                        if not snippet:
+                            snippet = doc[:1500] if is_boosted else doc[:800]
+                            
+                        text_output.append(snippet[:2500]) # Hard limit
                         text_output.append("\n" + "-"*20 + "\n")
                     return [types.TextContent(type="text", text="\n".join(text_output))]
 

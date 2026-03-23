@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import chromadb
+from .exact_search import TrigramIndex
 
 # --- ChromaDB 0.4.22 Bug Workaround ---
 # In Python 3.12, sqlite3 might return an int for seq_id instead of bytes,
@@ -30,7 +31,20 @@ class VectorStore:
             
         try:
             client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
-            collection = client.get_or_create_collection(name="project_context")
+            
+            # Phase 2: HNSW Parameter Tuning 
+            # These can only be set at collection creation time.
+            hnsw_config = {
+                "hnsw:space": "cosine",
+                "hnsw:construction_ef": 200, 
+                "hnsw:M": 32,
+                "hnsw:search_ef": 100
+            }
+            
+            collection = client.get_or_create_collection(
+                name="project_context", 
+                metadata=hnsw_config
+            )
             # Cacheamos tanto el cliente como la colección
             self._chroma_clients[project_path] = {
                 "client": client,
@@ -43,8 +57,21 @@ class VectorStore:
 
     def delete_stale(self, collection, ids_to_delete: list):
         if ids_to_delete:
-            sys.stderr.write(f"[VectorStore] Removing {len(ids_to_delete)} stale files.\n")
-            collection.delete(ids=ids_to_delete)
+            sys.stderr.write(f"[VectorStore] Removing {len(ids_to_delete)} stale files and their chunks.\n")
+            # Phase 6: Robust cascade delete using metadata path
+            collection.delete(where={"path": {"$in": ids_to_delete}})
+            
+            # Phase 6: Cleanup Trigram Index
+            try:
+                client = collection._client
+                # Try to resolve trigram path similar to upsert_files
+                persist_dir = client._server.settings.persist_directory if hasattr(client, "_server") else None
+                if persist_dir:
+                    trigram_db = os.path.join(os.path.dirname(persist_dir), "trigram_index.db")
+                    trigram_index = TrigramIndex(trigram_db)
+                    trigram_index.delete_documents(ids_to_delete)
+            except Exception as e:
+                sys.stderr.write(f"[VectorStore] Trigram cleanup warning: {e}\n")
 
     def upsert_files(self, project_path: str, collection, files_to_index: list, skeletonizer, extract_idents_fn):
         if not files_to_index:
@@ -72,24 +99,67 @@ class VectorStore:
                     content = f.read()
                 
                 skeleton, line_map, calls, inherits = skeletonizer.skeletonize(content, filepath)
-                
                 is_doc = filepath.endswith((".md", ".txt", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".env"))
+                content_lines = content.splitlines()
                 
-                metas_buf.append({
-                    "path": filepath,
-                    "remote": False,
-                    "skeleton": skeleton,
-                    "line_map": json.dumps(line_map),
-                    "calls": json.dumps(calls),
-                    "inherits": json.dumps(inherits),
-                    "type": "doc" if is_doc else "code",
-                    "ident_bag": " ".join(extract_idents_fn(content))
+                # Phase 4: Chunking logic
+                chunks = []
+                # Fallback: add the whole file as a base document or if no line_map
+                chunks.append({
+                    "id": filepath,
+                    "content": content,
+                    "metadata": {
+                        "path": filepath,
+                        "line": 0,
+                        "type": "doc" if is_doc else "file",
+                        "skeleton": skeleton,
+                        "ident_bag": " ".join(extract_idents_fn(content))
+                    }
                 })
-                docs_buf.append(content)
-                ids_buf.append(filepath)
-                
-                if len(docs_buf) >= batch_size:
-                    _flush()
+
+                if not is_doc and isinstance(line_map, list):
+                    for entry in line_map:
+                        symbol_name = entry.get("name")
+                        start = entry.get("start_line", 1) - 1
+                        end = entry.get("end_line", len(content_lines))
+                        
+                        if symbol_name and (end - start) > 0:
+                            symbol_content = "\n".join(content_lines[start:end])
+                            chunks.append({
+                                "id": f"{filepath}::{symbol_name}::{start+1}",
+                                "content": symbol_content,
+                                "metadata": {
+                                    "path": filepath,
+                                    "line": start + 1,
+                                    "symbol": symbol_name,
+                                    "type": entry.get("type", "code"),
+                                    "parent_file": filepath,
+                                    "ident_bag": " ".join(extract_idents_fn(symbol_content))
+                                }
+                            })
+
+                trigram_db = os.path.join(os.path.dirname(client._server.settings.persist_directory), "trigram_index.db") if hasattr(client, "_server") else os.path.join(indices_dir, "trigram_index.db")
+                trigram_index = TrigramIndex(trigram_db)
+
+                for chunk in chunks:
+                    docs_buf.append(chunk["content"])
+                    ids_buf.append(chunk["id"])
+                    
+                    # Phase 5: Index in Trigram Index
+                    trigram_index.index_document(chunk["id"], chunk["content"])
+                    
+                    # Common metadata + specific chunk metadata
+                    meta = {
+                        "remote": False,
+                        "calls": json.dumps(calls),
+                        "inherits": json.dumps(inherits)
+                    }
+                    meta.update(chunk["metadata"])
+                    metas_buf.append(meta)
+                    
+                    if len(docs_buf) >= batch_size:
+                        _flush()
+
             except Exception as e:
                 sys.stderr.write(f"Error indexing {filepath}: {e}\n")
         
