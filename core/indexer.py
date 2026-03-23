@@ -159,6 +159,8 @@ class Indexer:
         
         # 2. Hybrid Search
         vector_results = []
+        filename_matches_dict = {f["id"]: f for f in filename_matches}
+        
         if query_type == 'literal':
             literal_results = self._engine.grep_search(project_path, query_text, file_pattern, collection, workspace_only)
             # Add small vector search for hybrid context
@@ -170,21 +172,27 @@ class Indexer:
             except Exception: pass
             
             for match in literal_results:
-                existing = next((f for f in filename_matches if f["id"] == match["id"]), None)
-                if existing: existing["score"] += 1.0
-                else: filename_matches.append({"id": match["id"], "score": 0.8, "remote": match["remote"]})
+                mid = match["id"]
+                if mid in filename_matches_dict:
+                    filename_matches_dict[mid]["score"] += 1.0
+                else: 
+                    filename_matches_dict[mid] = {"id": mid, "score": 0.8, "remote": match["remote"]}
         else:
             try:
                 v_res = collection.query(query_texts=[query_text], n_results=n_results * 10, where={"remote": False} if workspace_only else None)
                 for vid in v_res.get("ids", [[]])[0]:
-                    if self._engine.matches_file_pattern(vid, project_path, file_pattern):
+                    if self._engine.matches_file_pattern(self._resolve_filepath(vid), project_path, file_pattern):
                         vector_results.append({"id": vid})
             except Exception: pass
             
             literal_results = self._engine.grep_search(project_path, query_text, file_pattern, collection, workspace_only)
+            v_ids = {v["id"] for v in vector_results}
             for match in literal_results:
-                if not any(v["id"] == match["id"] for v in vector_results):
-                    filename_matches.append({"id": match["id"], "score": 3, "remote": match["remote"]})
+                mid = match["id"]
+                if mid not in v_ids:
+                    filename_matches_dict[mid] = {"id": mid, "score": 3, "remote": match["remote"]}
+
+        filename_matches = list(filename_matches_dict.values())
 
         # 3. Fusion & Ranking
         w_file, w_vec = (50.0, 1.0) if query_type == 'literal' else (10.0, 5.0) if query_type == 'symbol' else (3.0, 5.0)
@@ -192,7 +200,7 @@ class Indexer:
         
         # Penalties
         for fid in final_ids:
-            item = next((f for f in filename_matches if f["id"] == fid), None)
+            item = filename_matches_dict.get(fid)
             is_rem = item["remote"] if item else fid.startswith("remote://")
             rrf_scores[fid] += self._engine.path_penalty(fid, is_rem, workspace_only)
 

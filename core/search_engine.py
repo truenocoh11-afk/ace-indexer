@@ -231,17 +231,18 @@ class SearchEngine:
 
         try:
             # Phase 5: Trigram Index Lookup 
-            # Derive DB path from collection persist path if possible
-            # Standard ACE path: <indices>/<project_hash>/chroma_db
+            # Derive DB path reliably from ChromaDB persist path or project structure
             try:
-                persist_path = collection._client._server.settings.persist_directory
-                trigram_db = os.path.join(os.path.dirname(persist_path), "trigram_index.db")
-            except:
-                # Fallback to a default location if derivation fails
-                indices_root = os.path.join(os.path.expanduser("~"), ".ace", "indices")
-                import hashlib
-                project_hash = hashlib.sha256(project_path.encode()).hexdigest()[:12]
-                trigram_db = os.path.join(indices_root, project_hash, "trigram_index.db")
+                client = collection._client
+                persist_path = getattr(client, '_persist_directory', None)
+                if not persist_path and hasattr(client, '_server'):
+                    persist_path = client._server.settings.persist_directory
+                if persist_path:
+                    trigram_db = os.path.join(os.path.dirname(persist_path), "trigram_index.db")
+                else:
+                    trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
+            except Exception:
+                trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
 
             where_meta = {"remote": False} if workspace_only else None
             
@@ -250,7 +251,8 @@ class SearchEngine:
                 res = collection.get(
                     where_document={"$contains": query_text},
                     where=where_meta,
-                    include=["metadatas"]
+                    include=["metadatas"],
+                    limit=3000
                 )
             else:
                 index = TrigramIndex(trigram_db)
@@ -259,7 +261,8 @@ class SearchEngine:
                 if not candidate_ids:
                     return []
 
-                # Fetch metadatas only for candidate IDs
+                # Fetch metadatas only for candidate IDs, limit strictly to avoid SQLite/OOM freeze on heavy matches
+                candidate_ids = candidate_ids[:3000]
                 res = collection.get(
                     ids=candidate_ids,
                     where=where_meta,

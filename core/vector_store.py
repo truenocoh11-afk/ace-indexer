@@ -64,8 +64,9 @@ class VectorStore:
             # Phase 6: Cleanup Trigram Index
             try:
                 client = collection._client
-                # Try to resolve trigram path similar to upsert_files
-                persist_dir = client._server.settings.persist_directory if hasattr(client, "_server") else None
+                persist_dir = client._persist_directory if hasattr(client, '_persist_directory') else None
+                if not persist_dir:
+                    persist_dir = client._server.settings.persist_directory if hasattr(client, '_server') else None
                 if persist_dir:
                     trigram_db = os.path.join(os.path.dirname(persist_dir), "trigram_index.db")
                     trigram_index = TrigramIndex(trigram_db)
@@ -138,7 +139,18 @@ class VectorStore:
                                 }
                             })
 
-                trigram_db = os.path.join(os.path.dirname(client._server.settings.persist_directory), "trigram_index.db") if hasattr(client, "_server") else os.path.join(indices_dir, "trigram_index.db")
+                # Phase 5: Derive trigram DB path reliably from cached ChromaDB persist directory
+                try:
+                    persist_dir = client._client._persist_directory if hasattr(client, '_client') else None
+                    if not persist_dir:
+                        persist_dir = client._server.settings.persist_directory if hasattr(client, '_server') else None
+                    if persist_dir:
+                        trigram_db = os.path.join(os.path.dirname(persist_dir), "trigram_index.db")
+                    else:
+                        # Direct fallback: derive from project_path structure (.ace/indices/)
+                        trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
+                except Exception:
+                    trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
                 trigram_index = TrigramIndex(trigram_db)
 
                 for chunk in chunks:
