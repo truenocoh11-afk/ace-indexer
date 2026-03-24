@@ -528,10 +528,13 @@ def create_mcp_server():
                     return [types.TextContent(type="text", text=f"Indexed files ({len(files)}):\n{file_list}")]
                 
                 elif action == "reindex":
+                    from core.markov import MarkovChain
                     extra_ignore = arguments.get("extra_ignore_dirs", [])
                     stats = indexer.index_project(project_path, force=True, extra_ignore_dirs=extra_ignore)
-                    return [types.TextContent(type="text", text=f"Project Indexed Successfully.\nStats: {stats}")]
-                
+                    markov = MarkovChain()
+                    markov.populate(project_path)
+                    return [types.TextContent(type="text", text=f"Project Indexed Successfully.\nStats: {stats}\nMarkov DB Populated.")]
+
                 return [types.TextContent(type="text", text=f"❌ Unknown action: {action}")]
 
             elif name == "ace_memory":
