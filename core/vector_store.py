@@ -40,13 +40,22 @@ class VectorStore:
                 "hnsw:search_ef": 100
             }
 
-            # Phase 7D: Explicit ONNX Embedding Function (Opt B)
+            # Phase 7D: Explicit ONNX Embedding Function (Opt B) — adaptive GPU/CPU provider
             embedding_function = None
             try:
+                import onnxruntime as _ort
                 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
-                embedding_function = ONNXMiniLM_L6_V2(preferred_providers=["CPUExecutionProvider"])
+                _available = _ort.get_available_providers()
+                if "CUDAExecutionProvider" in _available:
+                    _providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                elif "DmlExecutionProvider" in _available:
+                    _providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+                else:
+                    _providers = ["CPUExecutionProvider"]
+                sys.stderr.write(f"[VectorStore] ONNX provider: {_providers[0]}\n")
+                embedding_function = ONNXMiniLM_L6_V2(preferred_providers=_providers)
             except ImportError:
-                sys.stderr.write("[VectorStore] Warning: onnxruntime not found. Using default embedding function (Opt B pending).\n")
+                sys.stderr.write("[VectorStore] Warning: onnxruntime not found. Using default embedding function.\n")
             except Exception as e:
                 sys.stderr.write(f"[VectorStore] Warning: Failed to initialize ONNX embedding function: {e}\n")
             
