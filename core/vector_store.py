@@ -33,17 +33,27 @@ class VectorStore:
             client = chromadb.PersistentClient(path=os.path.join(indices_dir, "chroma_db"))
             
             # Phase 2: HNSW Parameter Tuning 
-            # These can only be set at collection creation time.
             hnsw_config = {
                 "hnsw:space": "cosine",
                 "hnsw:construction_ef": 200, 
                 "hnsw:M": 32,
                 "hnsw:search_ef": 100
             }
+
+            # Phase 7D: Explicit ONNX Embedding Function (Opt B)
+            embedding_function = None
+            try:
+                from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+                embedding_function = ONNXMiniLM_L6_V2(preferred_providers=["CPUExecutionProvider"])
+            except ImportError:
+                sys.stderr.write("[VectorStore] Warning: onnxruntime not found. Using default embedding function (Opt B pending).\n")
+            except Exception as e:
+                sys.stderr.write(f"[VectorStore] Warning: Failed to initialize ONNX embedding function: {e}\n")
             
             collection = client.get_or_create_collection(
                 name="project_context", 
-                metadata=hnsw_config
+                metadata=hnsw_config,
+                embedding_function=embedding_function
             )
             # Cacheamos tanto el cliente como la colección
             self._chroma_clients[project_path] = {
@@ -88,6 +98,21 @@ class VectorStore:
             
         batch_size = min(max_batch, 500)
         docs_buf, metas_buf, ids_buf = [], [], []
+        trigram_buf = []
+
+        # Phase 5/7: Derive trigram DB path reliably from cached ChromaDB persistent client
+        try:
+            persist_dir = client._client._persist_directory if hasattr(client, '_client') else None
+            if not persist_dir:
+                persist_dir = client._server.settings.persist_directory if hasattr(client, '_server') else None
+            if persist_dir:
+                trigram_db = os.path.join(os.path.dirname(persist_dir), "trigram_index.db")
+            else:
+                trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
+        except Exception:
+            trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
+        
+        trigram_index = TrigramIndex(trigram_db)
 
         def _flush():
             if docs_buf:
@@ -105,7 +130,6 @@ class VectorStore:
                 
                 # Phase 4: Chunking logic
                 chunks = []
-                # Fallback: add the whole file as a base document or if no line_map
                 chunks.append({
                     "id": filepath,
                     "content": content,
@@ -139,26 +163,12 @@ class VectorStore:
                                 }
                             })
 
-                # Phase 5: Derive trigram DB path reliably from cached ChromaDB persist directory
-                try:
-                    persist_dir = client._client._persist_directory if hasattr(client, '_client') else None
-                    if not persist_dir:
-                        persist_dir = client._server.settings.persist_directory if hasattr(client, '_server') else None
-                    if persist_dir:
-                        trigram_db = os.path.join(os.path.dirname(persist_dir), "trigram_index.db")
-                    else:
-                        # Direct fallback: derive from project_path structure (.ace/indices/)
-                        trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
-                except Exception:
-                    trigram_db = os.path.join(project_path, ".ace", "indices", "trigram_index.db")
-                trigram_index = TrigramIndex(trigram_db)
-
                 for chunk in chunks:
                     docs_buf.append(chunk["content"])
                     ids_buf.append(chunk["id"])
                     
-                    # Phase 5: Index in Trigram Index
-                    trigram_index.index_document(chunk["id"], chunk["content"])
+                    # Phase 7: Buffer for batch indexing
+                    trigram_buf.append((chunk["id"], chunk["content"]))
                     
                     # Common metadata + specific chunk metadata
                     meta = {
@@ -176,6 +186,9 @@ class VectorStore:
                 sys.stderr.write(f"Error indexing {filepath}: {e}\n")
         
         _flush()
+        # Phase 7: Final Trigram batch ingestion
+        if trigram_buf:
+            trigram_index.index_documents_batch(trigram_buf)
 
     def upsert_remote_data(self, project_path: str, collection, remote_data: dict):
         """Incorporate remote file snippets into the local vector index."""

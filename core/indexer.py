@@ -228,7 +228,7 @@ class Indexer:
         for doc_id in final_ids:
             if len(res_ids) >= n_results: break
             try:
-                fm_item = next((f for f in filename_matches if f["id"] == doc_id), None)
+                fm_item = filename_matches_dict.get(doc_id)
                 is_remote = fm_item["remote"] if fm_item else doc_id.startswith("remote://")
                 
                 if not is_remote:

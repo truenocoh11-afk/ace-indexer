@@ -33,6 +33,29 @@ class TrigramIndex:
         finally:
             conn.close()
 
+    def index_documents_batch(self, documents):
+        """Indexes multiple documents in a single SQLite transaction."""
+        if not documents:
+            return
+        conn = sqlite3.connect(self.db_path)
+        try:
+            doc_ids = [(d[0],) for d in documents]
+            # Batch delete old entries
+            conn.executemany("DELETE FROM trigrams WHERE doc_id = ?", doc_ids)
+            
+            # Generate all grams and batch insert
+            all_grams = []
+            for doc_id, text in documents:
+                grams = self.generate_trigrams(text)
+                all_grams.extend([(g, doc_id) for g in grams])
+            
+            conn.executemany("INSERT INTO trigrams (gram, doc_id) VALUES (?, ?)", all_grams)
+            conn.commit()
+        except Exception as e:
+            sys.stderr.write(f"[TrigramIndex] Batch indexing error: {e}\n")
+        finally:
+            conn.close()
+
     def find_candidates(self, query_text):
         if not query_text:
             return []
