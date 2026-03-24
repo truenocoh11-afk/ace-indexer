@@ -297,7 +297,40 @@ def create_mcp_server():
         sys.stderr.write(f"[DEBUG] call_tool invoked: {name} with {arguments}\n")
         
         try:
-            if name == "ace_search_code":
+            if name == "ace_hardware_status":
+                import onnxruntime as ort
+                import os
+                available = ort.get_available_providers()
+                
+                active_p = "Unknown"
+                try:
+                    from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+                    import logging
+                    
+                    # Temporarily suppress chromadb download logs
+                    logging.getLogger("chromadb").setLevel(logging.ERROR)
+                    ef = ONNXMiniLM_L6_V2()
+                    if hasattr(ef, "model") and hasattr(ef.model, "get_providers"):
+                        active_providers = ef.model.get_providers()
+                        # The first provider in the list is the active one
+                        active_p = active_providers[0] if active_providers else "None"
+                    else:
+                        active_p = "Embedding function initialized but 'model' attribute not accessible."
+                except Exception as e:
+                    active_p = f"Error during detection: {e}"
+
+                status_msg = [
+                    "## ACE Hardware Acceleration Status",
+                    f"- **Available providers**: `{available}`",
+                    f"- **Active provider (used by VectorStore)**: `{active_p}`",
+                    "",
+                    "### Troubleshooting",
+                    "- If DirectML is available but not active, restart the MCP server.",
+                    "- High CPU usage with 0% GPU usually means missing runtime DLLs or fallback to CPU due to model incompatibility."
+                ]
+                return [types.TextContent(type="text", text="\n".join(status_msg))]
+
+            elif name == "ace_search_code":
                 import re, time, datetime
                 start_time = time.time()
                 query = arguments.get("query")
