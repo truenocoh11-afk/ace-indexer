@@ -685,23 +685,35 @@ def create_mcp_server():
                 
                 if os.path.exists(db_path):
                     import sqlite3
+                    import re
                     try:
                         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                         c = conn.cursor()
-                        # Extraer solo archivos de tipo 'code' y su line_map usando solo la tabla de metadatos
+                        # Extraer chunks de tipo 'file' y su contenido de skeleton/calls
                         c.execute('''
                             SELECT 
                                 MAX(CASE WHEN key = 'path' THEN string_value END) as path,
-                                MAX(CASE WHEN key = 'line_map' THEN string_value END) as line_map
+                                MAX(CASE WHEN key = 'skeleton' THEN string_value END) as skeleton,
+                                MAX(CASE WHEN key = 'calls' THEN string_value END) as calls
                             FROM embedding_metadata
                             GROUP BY id
-                            HAVING MAX(CASE WHEN key = 'type' THEN string_value END) = 'code'
+                            HAVING MAX(CASE WHEN key = 'type' THEN string_value END) = 'file'
                         ''')
                         for row in c.fetchall():
-                            if row[0]: # path no es None
+                            path, skeleton, calls_json = row[0], row[1], row[2]
+                            if path:
+                                # Reconstruir mapa de símbolos desde el skeleton (Regex fallback post-Phase 4)
+                                lmap = {}
+                                if skeleton:
+                                    for i, ln in enumerate(skeleton.splitlines(), 1):
+                                        m = re.match(r'^\s*(def|class|function|async def|const|let|var)\s+([a-zA-Z_]\w*)', ln)
+                                        if m:
+                                            lmap[m.group(2)] = i
+                                
                                 code_metas.append({
-                                    "path": row[0],
-                                    "line_map": row[1] or "{}"
+                                    "path": path,
+                                    "line_map": json.dumps(lmap),
+                                    "calls": calls_json or "[]"
                                 })
                         conn.close()
                     except Exception as e:
