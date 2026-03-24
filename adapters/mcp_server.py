@@ -303,30 +303,44 @@ def create_mcp_server():
                 available = ort.get_available_providers()
                 
                 active_p = "Unknown"
+                device_info = "Default (0)"
                 try:
-                    from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+                    from core.gpu_bootstrap import NvidiaONNXEmbedding
                     import logging
                     
                     # Temporarily suppress chromadb download logs
                     logging.getLogger("chromadb").setLevel(logging.ERROR)
-                    ef = ONNXMiniLM_L6_V2()
-                    if hasattr(ef, "model") and hasattr(ef.model, "get_providers"):
-                        active_providers = ef.model.get_providers()
-                        # The first provider in the list is the active one
-                        active_p = active_providers[0] if active_providers else "None"
+                    
+                    # Check for DML specific device targeting
+                    if "DmlExecutionProvider" in available:
+                        ef = NvidiaONNXEmbedding(device_id=1)
+                        if hasattr(ef, "model"):
+                            model = ef.model
+                            active_providers = model.get_providers()
+                            active_p = active_providers[0] if active_providers else "None"
+                            options = model.get_provider_options()
+                            dml_opts = options.get("DmlExecutionProvider", {})
+                            d_id = dml_opts.get("device_id", "0")
+                            device_info = f"{d_id} ({'NVIDIA High-Performance' if d_id == '1' else 'AMD/Integrated'})"
                     else:
-                        active_p = "Embedding function initialized but 'model' attribute not accessible."
+                        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+                        ef = ONNXMiniLM_L6_V2()
+                        if hasattr(ef, "model"):
+                            active_providers = ef.model.get_providers()
+                            active_p = active_providers[0] if active_providers else "None"
                 except Exception as e:
                     active_p = f"Error during detection: {e}"
 
                 status_msg = [
                     "## ACE Hardware Acceleration Status",
                     f"- **Available providers**: `{available}`",
-                    f"- **Active provider (used by VectorStore)**: `{active_p}`",
+                    f"- **Active provider**: `{active_p}`",
+                    f"- **DirectML Device ID**: `{device_info}`",
                     "",
                     "### Troubleshooting",
                     "- If DirectML is available but not active, restart the MCP server.",
-                    "- High CPU usage with 0% GPU usually means missing runtime DLLs or fallback to CPU due to model incompatibility."
+                    "- **Performance Note**: Target device 1 on laptops is usually the NVIDIA dGPU.",
+                    "- High CPU usage with 0% GPU usually means missing runtime DLLs or fallback to CPU."
                 ]
                 return [types.TextContent(type="text", text="\n".join(status_msg))]
 

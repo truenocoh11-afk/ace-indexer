@@ -93,3 +93,67 @@ def ensure_optimal_onnx():
 
 if __name__ == "__main__":
     ensure_optimal_onnx()
+
+# --- High-Performance GPU Targeting ---
+try:
+    from functools import cached_property
+    from typing import List, Optional, Any
+    import onnxruntime as ort
+    from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+
+    class NvidiaONNXEmbedding(ONNXMiniLM_L6_V2):
+        """
+        Custom embedding function that forces DirectML to use a specific device_id.
+        On hybrid laptops: device_id=0 is often AMD iGPU, device_id=1 is NVIDIA dGPU.
+        """
+        def __init__(self, device_id: int = 1, preferred_providers: Optional[List[str]] = None):
+            # If not specified, we default to DML + CPU
+            if preferred_providers is None:
+                preferred_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+            
+            super().__init__(preferred_providers=preferred_providers)
+            self._device_id = device_id
+
+        @cached_property
+        def model(self) -> Any:
+            # Replicate ChromaDB's model initialization but with provider_options
+            if not set(self._preferred_providers).issubset(set(ort.get_available_providers())):
+                 # Fallback to defaults if preferred are not available
+                 self._preferred_providers = ort.get_available_providers()
+
+            so = ort.SessionOptions()
+            so.log_severity_level = 3
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+            # Construct provider_options for each provider
+            # device_id only applies to DmlExecutionProvider
+            p_options = []
+            for p in self._preferred_providers:
+                if p == "DmlExecutionProvider":
+                    p_options.append({"device_id": int(self._device_id)})
+                else:
+                    p_options.append({})
+
+            model_path = os.path.join(self.DOWNLOAD_PATH, self.EXTRACTED_FOLDER_NAME, "model.onnx")
+            
+            # Ensure model exists before creating session
+            self._download_model_if_not_exists()
+            
+            try:
+                return ort.InferenceSession(
+                    model_path,
+                    providers=self._preferred_providers,
+                    provider_options=p_options,
+                    sess_options=so
+                )
+            except Exception as e:
+                sys.stderr.write(f"[NvidiaONNX] Warning: Failed to init with device_id={self._device_id}: {e}. Falling back to default.\n")
+                return ort.InferenceSession(
+                    model_path,
+                    providers=self._preferred_providers,
+                    sess_options=so
+                )
+except ImportError:
+    # If chromadb or onnxruntime is missing, this class won't be available
+    # but the bootstrap process will handle the installation later.
+    pass
