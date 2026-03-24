@@ -149,7 +149,8 @@ class FileScanner:
 
         # 2. Hash in parallel
         sys.stderr.write(f"[Scanner] Hashing {len(all_eligible_paths)} files in parallel...\n")
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        max_workers = min(32, (os.cpu_count() or 4) + 4)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_path = {executor.submit(self.compute_file_hash, path): path for path in all_eligible_paths}
             for future in as_completed(future_to_path):
                 filepath = future_to_path[future]

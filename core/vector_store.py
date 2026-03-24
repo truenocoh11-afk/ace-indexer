@@ -96,7 +96,7 @@ class VectorStore:
         except AttributeError:
             max_batch = 100
             
-        batch_size = min(max_batch, 500)
+        batch_size = min(max_batch, 5000)
         docs_buf, metas_buf, ids_buf = [], [], []
         trigram_buf = []
 
