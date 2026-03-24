@@ -40,6 +40,13 @@ def main():
     Synchronous entry point for the package script.
     """
     try:
+        # Phase 10: Zero-Config GPU Auto-Detection
+        from core.gpu_bootstrap import ensure_optimal_onnx
+        ensure_optimal_onnx()
+    except Exception as e:
+        sys.stderr.write(f"[ACE] GPU Bootstrap failed: {e}\n")
+
+    try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
         pass

@@ -1,0 +1,7 @@
+[DEBUG] Directory created: C:\Users\Julian/.ace
+[DEBUG] Running nvidia-smi...
+[DEBUG] nvidia-smi returncode: 0
+[ACE] NVIDIA GPU detected. Initializing GPU acceleration (first time setup)...
+[ACE] Warning: Failed to install onnxruntime-gpu (code 1). Falling back to CPU.
+Error: C:\Users\Julian\Documents\Antigravity\ACE indexer\ace_engine\.venv\Scripts\python.exe: No module named pip
+
